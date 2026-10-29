@@ -60,27 +60,60 @@ python run_daily.py --fresh
 
 ## 三、目录结构
 
+12 个生产模块共 3159 行，按「一件事一个文件」划分。**文件名即职责**，便于人和 AI 快速定位：
+
+| 文件 | 行数 | 职责 | 上游调用者 |
+|---|---|---|---|
+| `run_daily.py` | 311 | 日常入口：查缓存新鲜度 → 按需刷新 → 调选股 | 人 |
+| `run_screen_v2.py` | 256 | 策略主入口：周期判定 → 筛选 → 打分 → 输出 | `run_daily` |
+| `yh_screen.py` | 511 | 筛选条件、五维打分、参数总表 | `run_screen_v2` |
+| `yh_panel.py` | 198 | 截面面板构建（把行情拼成选股用的表） | `run_screen_v2` |
+| `yh_factors.py` | 180 | 因子计算（prox / width30 / amt30 / turn30 等） | `yh_panel` |
+| `yh_datasource.py` | 400 | **HTTP 数据源**：腾讯行情、东财财报/快照/股东 | 多个 |
+| `yh_tdx.py` | 106 | **通达信 MCP 客户端**：五大指数日线 | `yh_regime` |
+| `yh_regime.py` | 204 | 市场周期判定（UP / CHOP / DOWN） | `yh_regime_state` |
+| `yh_regime_state.py` | 213 | 周期状态读写缓存 | `run_screen_v2` |
+| `yh_rev_fine.py` | 329 | 营收数据精算（TTM 口径） | `yh_pos_in_box`、`yh_blockboot_all` |
+| `yh_blockboot_all.py` | 270 | 分块 bootstrap 显著性检验 | `yh_pos_in_box` |
+| `yh_pos_in_box.py` | 181 | 箱体内相对位置 + 严格度阶梯的历史实证 | `run_screen_v2` |
+
+**依赖方向**（箭头表示调用，从入口往下）：
+
 ```
-.
-├── run_daily.py          # 【日常入口】检查缓存新鲜度 → 按需刷新 → 调用选股
-├── run_screen_v2.py      # 【策略主入口】v2 选股逻辑与输出
-├── yh_datasource.py      # 数据源：腾讯行情 / 东财财报 / 通达信指数
-├── yh_panel.py           # 截面面板构建
-├── yh_factors.py         # 因子计算
-├── yh_screen.py          # 筛选、打分、参数表
-├── yh_regime.py          # 市场周期判定
-├── yh_regime_state.py    # 周期状态
-├── yh_rev_fine.py        # 营收数据精算
-├── yh_blockboot_all.py   # 分块 bootstrap 检验
-├── yh_pos_in_box.py      # 箱体内相对位置
-├── yh_tdx.py             # 通达信数据接口
-│
-├── research/             # 研究脚本（50 个）：参数校准、诊断、事件研究，不参与日常运行
-├── archive/              # 历史版本入口（v1）
-├── versions/             # v1 / v2 代码快照与推导归档
-├── cache/                # 数据缓存（不入库，可再生）
-└── output/               # 运行产出（不入库）
+run_daily
+  └─ run_screen_v2
+       ├─ yh_screen
+       ├─ yh_panel ── yh_factors
+       ├─ yh_regime_state ── yh_regime ── yh_tdx
+       ├─ yh_datasource          (腾讯 / 东财)
+       └─ yh_pos_in_box ── yh_blockboot_all ── yh_rev_fine
 ```
+
+其余目录：
+
+```
+research/   研究脚本（50 个）：参数校准、诊断、事件研究，不参与日常运行
+archive/    历史版本入口（v1）
+versions/   v1 / v2 代码快照与推导归档
+tools/      运维脚本（pack_data.py 打包数据）
+cache/      数据缓存（不入库，可再生）
+output/     运行产出（不入库）
+```
+
+### 为什么 `yh_tdx.py` 和 `yh_datasource.py` 不合并
+
+两者协议层完全不同，合并会互相拖累：
+
+| | `yh_datasource.py` | `yh_tdx.py` |
+|---|---|---|
+| 协议 | 公开 HTTP 接口 | MCP-over-HTTP（SSE + session 握手） |
+| 依赖 | 只需 `requests` | 本机 `tdx-connector` 服务 + `CODEBUDDY_MCP_CONFIG` 环境变量 |
+| 失效影响 | 拉不到某只票的数据 | 整条指数/周期链路不可用 |
+| 重试策略 | 简单 3 次重试 | 需维护 session id、重新 initialize |
+
+一个数据源一个文件是适配器模式的标准做法：新增源只加文件、不动老代码；一个源出问题不牵连另一个。合并成 500 多行的混合文件，反而更难定位问题——**对人和 AI 都是**。
+
+> ⚠️ **已知限制**：`yh_tdx.py` 依赖本机通达信 MCP 服务。组员机器若未配置 `CODEBUDDY_MCP_CONFIG`，`run_daily.py --fresh` 在重算周期标签这一步会失败。使用打包数据（含 `regime_state.pkl`）可跳过该步骤正常选股。
 
 ---
 
