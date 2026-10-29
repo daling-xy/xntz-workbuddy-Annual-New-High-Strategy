@@ -32,17 +32,42 @@ pip install -r requirements.txt
 
 ### 2. 首次准备数据（只需做一次）
 
-缓存体积约 3.6 GB，**不放进仓库**（可再生），需要在本机重建：
+数据缓存在 `cache/`，约 1 GB，**不放进 git**——GitHub 单文件上限 100 MB，且 git 对二进制是"完整快照"存储而非增量，大缓存会把仓库撑爆。两条路任选：
+
+**方式 A：下载现成数据包（推荐，约 1 分钟）**
+
+最简单——打开 Release 页面，点 `cache_core_20261029.zip` 下载：
+
+https://github.com/daling-xy/xntz-workbuddy-Annual-New-High-Strategy/releases/tag/data-20261029
+
+命令行（`gh` 已登录时）：
 
 ```bash
-# ① 拉取 2018 年至今全历史日线（最慢的一步，视网络约 20~60 分钟）
+gh release download data-20261029 \
+  -R daling-xy/xntz-workbuddy-Annual-New-High-Strategy \
+  -p "cache_core_*.zip" -D .
+unzip cache_core_*.zip -d cache/
+python run_daily.py
+```
+
+> ⚠️ 私有仓库的 Release 附件**必须登录才能下载**，直接 `curl` 网页链接会返回 404。
+> Windows 上用 curl 走 API 时若报 `CRYPT_E_REVOCATION_OFFLINE`，加 `--ssl-no-revoke`。
+
+> 数据包解压后约 1040 MB，**不含** `events_*.pkl`（1.6 GB，仅参数研究用）。
+> 缺失时「严格度阶梯」的历史实证栏显示 `—`，选股主流程不受影响。
+
+**方式 B：从公开数据源自行重建（约 30~70 分钟）**
+
+```bash
+# ① 拉取 2018 年至今全历史日线（最慢的一步，视网络 20~60 分钟）
 python -m research.yh_fetch_long2
 
-# ② 刷新行情/快照/财报/宽度/周期标签/截面面板（约 3~8 分钟）
+# ② 刷新行情/快照/财报/宽度/周期标签/截面面板（3~8 分钟）
 python run_daily.py --fresh
 ```
 
-> 若第 ① 步不是从零开始（已有 `cache/kline_long2.pkl`），可跳过。
+> 若 `cache/kline_long2.pkl` 已存在，第 ① 步可跳过。
+> 若本机未配置通达信 `tdx-connector`，第 ② 步会在重算周期标签时失败——改用方式 A。
 
 ### 3. 日常使用
 
