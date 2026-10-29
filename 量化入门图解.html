@@ -1,0 +1,1025 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>量化回测 5 个底层概念 · 交互图解</title>
+<style>
+  :root{
+    --bg:#ffffff; --card:#f7f8fa; --line:#e3e6ea; --ink:#1f2328; --ink2:#5b6470;
+    --up:#d93025;      /* 涨 = 红（A股习惯） */
+    --down:#1e8e3e;    /* 跌 = 绿 */
+    --neu:#9aa3ad;     /* 中性/市场贡献 */
+    --accent:#1a56db;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font-family:-apple-system,"PingFang SC","Microsoft YaHei",Segoe UI,sans-serif;
+       line-height:1.7;font-size:15px}
+  .wrap{max-width:1000px;margin:0 auto;padding:32px 24px 80px}
+  h1{font-size:26px;margin:0 0 6px}
+  .sub{color:var(--ink2);font-size:14px;margin-bottom:28px}
+  h2{font-size:19px;margin:38px 0 4px;padding-top:14px;border-top:2px solid var(--line)}
+  .lead{color:var(--ink2);font-size:14px;margin:0 0 16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px 20px;margin:14px 0}
+  .row{display:flex;align-items:center;gap:12px;margin:10px 0;flex-wrap:wrap}
+  label{font-size:13px;color:var(--ink2);min-width:120px}
+  input[type=range]{width:230px;accent-color:var(--accent)}
+  .val{font-variant-numeric:tabular-nums;font-weight:600;min-width:64px;display:inline-block}
+  .big{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
+  .pos{color:var(--up)} .neg{color:var(--down)} .zero{color:var(--ink2)}
+  button{background:#fff;border:1px solid var(--line);border-radius:7px;padding:7px 14px;
+         cursor:pointer;font-size:13px;color:var(--ink);font-family:inherit}
+  button:hover{border-color:var(--accent);color:var(--accent)}
+  .btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  table{border-collapse:collapse;width:100%;font-size:14px;margin-top:8px}
+  th,td{border-bottom:1px solid var(--line);padding:7px 10px;text-align:left}
+  th{color:var(--ink2);font-weight:600;font-size:13px}
+  td.n{text-align:right;font-variant-numeric:tabular-nums}
+  .bar{height:26px;border-radius:5px;display:inline-block;vertical-align:middle}
+  .barwrap{background:#eceff2;border-radius:6px;height:30px;position:relative;overflow:hidden;margin:8px 0}
+  .barwrap .seg{position:absolute;top:0;height:100%;display:flex;align-items:center;
+                justify-content:center;color:#fff;font-size:12px;font-weight:600}
+  .dots{display:flex;flex-wrap:wrap;gap:5px;margin:10px 0}
+  .dot{width:20px;height:20px;border-radius:50%}
+  .axis{position:relative;height:56px;margin:22px 0 8px}
+  .axis .zero{position:absolute;top:0;bottom:0;width:2px;background:var(--ink);opacity:.35}
+  .axis .span{position:absolute;top:16px;height:22px;border-radius:5px;opacity:.85}
+  .axis .tick{position:absolute;top:44px;transform:translateX(-50%);font-size:11px;color:var(--ink2);
+              font-variant-numeric:tabular-nums;white-space:nowrap}
+  .axis .pt{position:absolute;top:12px;width:10px;height:30px;background:var(--ink);border-radius:2px;
+            transform:translateX(-50%)}
+  .note{background:#fffbea;border:1px solid #f2e2a8;border-radius:8px;padding:12px 16px;
+        font-size:14px;margin:14px 0}
+  .good{background:#eaf6ec;border-color:#b7e0bf}
+  .bad{background:#fdeceb;border-color:#f3c3bf}
+  code{background:#eceff2;padding:1px 6px;border-radius:4px;font-size:13px}
+  .k{font-weight:600}
+  .flow{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+  .step{flex:1 1 200px;background:#fff;border:1px solid var(--line);border-radius:8px;
+        padding:10px 12px;font-size:13px}
+  .step.hiya{background:#fffbea;border-color:#f2e2a8}
+  .step.higr{background:#eaf6ec;border-color:#b7e0bf}
+  .step .i{display:inline-block;width:20px;height:20px;line-height:20px;text-align:center;
+           border-radius:50%;background:var(--accent);color:#fff;font-size:12px;
+           font-weight:700;margin-right:6px}
+  .step small{color:var(--ink2);display:block;margin-top:3px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>量化回测的 5 个底层概念</h1>
+<div class="sub">从「赚了钱」到「证明自己有选股能力」，中间要过三关。拖动滑块可以自己试。</div>
+
+<!-- ============ 1 ============ -->
+<h2>① 超额收益：赚了钱 ≠ 选对了股</h2>
+<p class="lead">必须先减掉"市场本来给你的那部分"，否则牛市里随便买都像股神。</p>
+
+<div class="card">
+  <div class="row"><label>你的组合 60 天收益</label>
+    <input type="range" id="m1a" min="-20" max="40" step="1" value="12">
+    <span class="val" id="m1av">+12%</span></div>
+  <div class="row"><label>同期全市场平均</label>
+    <input type="range" id="m1b" min="-20" max="40" step="1" value="8">
+    <span class="val" id="m1bv">+8%</span></div>
+  <hr style="border:none;border-top:1px solid var(--line);margin:14px 0">
+  <div>去均值超额 = <span id="m1f"></span> = <span class="big" id="m1r">+4.0%</span></div>
+  <div class="barwrap"><div class="seg" id="m1bar" style="left:0;width:30%;background:var(--up)"></div></div>
+  <div id="m1msg" class="note">你跑赢市场 4 个百分点 —— 这是<span class="k">第一层</span>结论，还不够。</div>
+</div>
+
+<!-- ============ 2 ============ -->
+<h2>② beta：最会伪装的陷阱</h2>
+<p class="lead">如果你的票本身就比大盘敏感（β&gt;1），那市场涨的时候它涨更多——这部分不是你的本事。</p>
+
+<div class="card">
+  <div class="row"><label>大盘 60 天收益</label>
+    <input type="range" id="m2m" min="-20" max="30" step="1" value="15">
+    <span class="val" id="m2mv">+15%</span></div>
+  <div class="row"><label>这批票的 β</label>
+    <input type="range" id="m2b" min="0" max="2.5" step="0.05" value="1.66">
+    <span class="val" id="m2bv">1.66</span></div>
+  <div class="row"><label>这批票实际涨了</label>
+    <input type="range" id="m2r" min="-20" max="40" step="1" value="25">
+    <span class="val" id="m2rv">+25%</span></div>
+
+  <hr style="border:none;border-top:1px solid var(--line);margin:14px 0">
+  <div class="barwrap" id="m2barwrap"></div>
+  <table>
+    <tr><th>拆项</th><th style="text-align:right">数值</th><th>含义</th></tr>
+    <tr><td>实际收益</td><td class="n" id="m2t1">+25.0%</td><td>你看到的数字</td></tr>
+    <tr><td>β × 市场收益</td><td class="n" id="m2t2">+24.9%</td><td>市场"本来就会给你"的</td></tr>
+    <tr><td><span class="k">alpha（β调整超额）</span></td><td class="n k" id="m2t3">+0.1%</td><td>真正属于你的选股能力</td></tr>
+  </table>
+  <div class="btns">
+    <button onclick="preset('trap')">载入示意案例：高 β 陷阱</button>
+    <button onclick="preset('good')">载入对照：低 β 的真选股</button>
+    <button onclick="document.getElementById('betaHow').style.display=document.getElementById('betaHow').style.display==='none'?'block':'none'">β 到底怎么算出来的？</button>
+  </div>
+  <div id="m2msg" class="note"></div>
+
+  <div id="betaHow" style="display:none;margin-top:16px">
+    <div class="note" style="background:#eef3fb;border-color:#c7d7f0">
+      <b>注意：上面的 β=1.66 是教学示意数字。</b>真实回测里，下跌市深跌组（当前价/年高&lt;0.70）的
+      β 中位数约 <b>1.07</b>，贴着年高的组约 <b>0.89</b>。差距真实存在，但没有示意里那么夸张。
+      下面讲算法本身。
+    </div>
+    <div class="note" style="background:#fff4e5;border-color:#f0d9a8;margin-top:10px">
+      <b>最常见的误解：β 不是"分组之后算出来的"。</b><br>
+      正确顺序是：<b>① 每一只票【自己】先算出一个 β → ② 事后按别的条件分组 → ③ 只做一件事：数一数这组里 β 的中位数</b>。<br>
+      β 是股票的<b>固有属性</b>（就像它的市值一样），跟你怎么分组、用什么筛选条件<b>完全无关</b>。
+    </div>
+    <div style="font-size:14px;margin-top:12px">
+      <p><b>先补最底层：Cov 和 Var 怎么算</b>（3 天的最小例子，股票刚好是市场的 2 倍）</p>
+      <table>
+        <tr><th>日</th><th class="n">市场 m</th><th class="n">股票 s</th><th class="n">m − m̄</th><th class="n">s − s̄</th><th class="n">(m−m̄)(s−s̄)</th><th class="n">(m−m̄)²</th></tr>
+        <tr><td>1</td><td class="n">+1%</td><td class="n">+2%</td><td class="n">+0.333</td><td class="n">+0.667</td><td class="n">+0.222</td><td class="n">0.111</td></tr>
+        <tr><td>2</td><td class="n">−1%</td><td class="n">−2%</td><td class="n">−1.667</td><td class="n">−3.333</td><td class="n">+5.556</td><td class="n">2.778</td></tr>
+        <tr><td>3</td><td class="n">+2%</td><td class="n">+4%</td><td class="n">+1.333</td><td class="n">+2.667</td><td class="n">+3.556</td><td class="n">1.778</td></tr>
+        <tr><td><b>Σ</b></td><td class="n">m̄=0.667</td><td class="n">s̄=1.333</td><td class="n"></td><td class="n"></td><td class="n"><b>9.333</b></td><td class="n"><b>4.667</b></td></tr>
+      </table>
+      <p style="margin-top:8px">
+        <b>Var(m)</b>（市场自己波动多大）= Σ(m−m̄)² ÷ (n−1) = 4.667 ÷ 2 = <b>2.333</b><br>
+        <b>Cov(r,m)</b>（股票和市场<b>一起</b>动多少）= Σ(r−r̄)(m−m̄) ÷ (n−1) = 9.333 ÷ 2 = <b>4.667</b><br>
+        <b>β = Cov ÷ Var = 4.667 ÷ 2.333 = <span class="big" style="color:var(--accent)">2.00</span></b>
+        —— 正好是 2 倍，符合设计。
+      </p>
+      <p style="color:var(--ink2);font-size:13px">
+      口诀：<b>Var 问"市场自己抖多狠"，Cov 问"这票跟着市场一起抖多少"，两者一除就是放大倍数 β。</b>
+      注：除以 n−1 还是 n 无所谓，β 是比值，上下约掉了。</p>
+
+      <p style="margin-top:18px"><b>β 的定义</b>（对市场基准做回归得到的斜率）：</p>
+      <p style="text-align:center;font-size:16px">β = Cov(股票日收益, 市场日收益) ÷ Var(市场日收益)</p>
+      <p>本项目的具体做法：<b>用事件日之前 250 个交易日的日收益</b>，对
+      <b>等权全 A 日收益</b>（不是沪深300）做滚动回归。</p>
+      <p><b>手算一遍（7 天简化示例）：</b></p>
+      <table>
+        <tr><th>日</th><th class="n">市场 m</th><th class="n">股票 s</th><th class="n">m−均值</th><th class="n">s−均值</th><th class="n">乘积</th><th class="n">(m−均值)²</th></tr>
+        <tr><td>1</td><td class="n">+1.0%</td><td class="n">+1.8%</td><td class="n">+0.614</td><td class="n">+1.214</td><td class="n">0.745</td><td class="n">0.377</td></tr>
+        <tr><td>2</td><td class="n">−0.5%</td><td class="n">−1.2%</td><td class="n">−0.886</td><td class="n">−1.786</td><td class="n">1.582</td><td class="n">0.785</td></tr>
+        <tr><td>3</td><td class="n">+2.0%</td><td class="n">+3.6%</td><td class="n">+1.614</td><td class="n">+3.014</td><td class="n">4.865</td><td class="n">2.605</td></tr>
+        <tr><td>4</td><td class="n">−1.5%</td><td class="n">−2.9%</td><td class="n">−1.886</td><td class="n">−3.486</td><td class="n">6.575</td><td class="n">3.557</td></tr>
+        <tr><td>5</td><td class="n">+0.8%</td><td class="n">+1.4%</td><td class="n">+0.414</td><td class="n">+0.814</td><td class="n">0.337</td><td class="n">0.171</td></tr>
+        <tr><td>6</td><td class="n">+1.2%</td><td class="n">+2.1%</td><td class="n">+0.814</td><td class="n">+1.514</td><td class="n">1.232</td><td class="n">0.663</td></tr>
+        <tr><td>7</td><td class="n">−0.3%</td><td class="n">−0.7%</td><td class="n">−0.686</td><td class="n">−1.286</td><td class="n">0.882</td><td class="n">0.471</td></tr>
+        <tr><td><b>合计</b></td><td class="n">均值 0.386</td><td class="n">均值 0.586</td><td class="n"></td><td class="n"></td><td class="n"><b>16.219</b></td><td class="n"><b>8.629</b></td></tr>
+      </table>
+      <p style="margin-top:10px">β = 16.219 ÷ 8.629 = <b class="big" style="color:var(--accent)">1.88</b></p>
+      <p style="color:var(--ink2);font-size:13px">
+      直觉读法：市场每动 1%，这只票平均动 1.88%。真实回测用 250 天而不是 7 天，但算法完全一样。</p>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 3 ============ -->
+<h2>③ 为什么同一天的股票不能算"独立样本"</h2>
+<p class="lead">标准误公式 <code>SE = 标准差 ÷ √样本数</code> 要求样本互相独立。同一天入选的票面对同一个大盘，不独立。</p>
+
+<div class="card">
+  <div class="row"><label>左：30 个独立样本</label><span style="color:var(--ink2);font-size:13px">每次抛硬币互不影响 → 真的是 30 个证据</span></div>
+  <div class="dots" id="d1"></div>
+  <div class="row" style="margin-top:16px"><label>右：同一天入选的 30 只票</label><span style="color:var(--ink2);font-size:13px">共享同一个大盘 → 其实只有 1 个证据</span></div>
+  <div class="dots" id="d2"></div>
+  <div class="btns"><button onclick="draw3()">换一天</button></div>
+  <div class="note bad" id="d3msg"></div>
+</div>
+
+<!-- ============ 4 ============ -->
+<h2>④ 整簇重抽样：把"同一天"当成一个整体来抽</h2>
+<p class="lead">普通 bootstrap 逐条抽事件（错，破坏相关性）；整簇重抽样整天地抽（对，保留相关性）。</p>
+
+<div class="card">
+  <div class="btns" style="margin-bottom:14px">
+    <button onclick="runBoot()">跑一次（1000 次重抽样）</button>
+  </div>
+  <div style="font-size:13px;color:var(--ink2);margin-top:6px">逐事件 bootstrap（错误做法）</div>
+  <div class="axis" id="ax1"></div>
+  <div style="font-size:13px;color:var(--ink2);margin-top:6px">整簇（按交易日）bootstrap（正确做法）</div>
+  <div class="axis" id="ax2"></div>
+  <div class="note" id="bootmsg"></div>
+
+  <div style="margin-top:18px">
+    <div style="font-size:13px;color:var(--ink2)">
+      1000 次重抽样各自算出的「策略平均超额」分布 —— 每一次都是<b>一个平行宇宙</b>：
+    </div>
+    <div id="hist" style="display:flex;align-items:flex-end;gap:1px;height:120px;
+         background:#fbfcfd;border:1px solid var(--line);border-radius:8px;padding:8px;margin-top:8px"></div>
+    <div style="font-size:12px;color:var(--ink2);margin-top:4px">
+      横轴 = 那次重抽样算出的平均超额，纵轴 = 出现次数。
+      <b>分布越矮胖，说明这个策略的结果越不稳定。</b>
+    </div>
+  </div>
+
+  <div class="note" style="background:#eef3fb;border-color:#c7d7f0;margin-top:16px">
+    <b>这一步到底在干什么？</b>我们手上只有<b>一段真实历史</b>，算出一个 +4.22%。
+    但真正想知道的是：<b>如果历史重演一遍，这个数字会变成多少？</b><br>
+    重抽样就是<b>用现有数据自己造出一千个"平行历史"</b>，看结果会散到什么程度。
+    所以 bootstrap <b>不是为了让 4.22% 更准，而是为了回答"4.22% 有多不可靠"</b>。
+  </div>
+</div>
+
+<!-- ============ 4+ ============ -->
+<h2>④⁺ 整条流水线的顺序：重抽样到底发生在哪一步</h2>
+<p class="lead">
+  最容易搞混的一点：<b class="k">「按年高分组」和「整簇重抽样」是两个完全不同阶段的动作，中间隔着好几步。</b>
+  整簇重抽样抽的是<b>交易日</b>，跟年高分组毫无关系。
+</p>
+
+<div class="card">
+  <div class="flow">
+    <div class="step"><span class="i">1</span>原始 K 线<small>5575 只票 × 2018 年至今，前复权</small></div>
+    <div class="step"><span class="i">2</span>生成事件表<small>150.2 万行 = 一只票 × 一个日期；<b>此时没有任何门槛</b></small></div>
+    <div class="step"><span class="i">3</span>给每个事件算 β<small>用该票前 250 天日收益对市场回归</small></div>
+    <div class="step"><span class="i">4</span>给每个事件打周期标签<small>UP / CHOP / DOWN</small></div>
+    <div class="step hiya"><span class="i">5</span><b>套 mask（策略在这里）</b><small>按 年高 / 箱宽 / 成交额 / 换手 挑子集</small></div>
+    <div class="step"><span class="i">6</span>算点估计<small>这 N 个事件的 α 均值，比如 +3.46%</small></div>
+    <div class="step higr"><span class="i">7</span><b>整簇重抽样（重抽样在这里）</b><small>按<b>交易日</b>有放回抽，一天里的事件同进同出</small></div>
+    <div class="step"><span class="i">8</span>得到 1000 个平行历史<small>取 5% / 95% 分位 = 90% 置信区间</small></div>
+  </div>
+
+  <div class="note bad">
+    <b>常见误解对照：</b><br>
+    ✗ "整簇 = 按 当前价/年高 分出来的组" —— <b>不对。</b>年高分组发生在第 5 步（挑子集），
+    抽的是<b>事件</b>；整簇重抽样发生在第 7 步（算完点估计之后），抽的是<b>交易日</b>。<br>
+    ✗ "对每个簇内都做一次随机有放回重抽样，算出 α 再比参数" —— <b>不对。</b>
+    重抽样<b>不改变点估计</b>，它只用来估计"这个点估计有多不可靠"。比参数看的是第 6 步的 α 和
+    第 8 步的 CI，不是重抽样本身。
+  </div>
+
+  <div class="note good">
+    <b>一句话：重抽样发生在「已经算出 +3.46% 之后」，目的是回答「这 +3.46% 有多不可靠」。</b><br>
+    做法：把 1,725 个交易日当成 1,725 张卡片，<b>有放回地抽 1,725 张</b>（同一天可能被抽中多次），
+    每次都用抽到的那些天的全部事件重算一遍 α 均值。重复 1000 次，就得到 1000 个"平行历史"的 α。
+  </div>
+</div>
+
+<!-- ============ 5 ============ -->
+<h2>⑤ 怎么读置信区间："CI 含零"是什么意思</h2>
+<p class="lead">90% 置信区间 = 真实效果有 90% 概率落在这个范围里。跨过 0 就等于"数据分不清它是正是负"。</p>
+
+<div class="card">
+  <div class="axis" id="ax3"></div>
+  <table>
+    <tr><th>例子</th><th style="text-align:right">90% CI</th><th>判读</th></tr>
+    <tr><td>本策略 UP 期</td><td class="n">[1.7, 7.1]</td><td class="pos">显著为正 —— 能用</td></tr>
+    <tr><td>本策略 DOWN 期</td><td class="n">[1.4, 5.6]</td><td class="pos">显著为正 —— 能用</td></tr>
+    <tr><td>下跌市放宽到 &lt;0.70 的深跌股</td><td class="n">[−0.9, 1.0]</td><td class="zero">含零 —— 不能当规律用</td></tr>
+    <tr><td>v1 参数在 DOWN 期</td><td class="n">[−4.8, −1.4]</td><td class="neg">显著为负 —— 历史上是稳定亏的</td></tr>
+  </table>
+  <div class="note good">口诀：<span class="k">区间整体在 0 的同一侧才算数；跨过 0 就当它不存在。</span></div>
+</div>
+
+<h2>⑤⁺ 置信区间的底层原理：重复一千次，有多少次罩住真值</h2>
+<p class="lead">
+  核心一句话：<b class="k">置信区间不是「真值有 95% 概率落在里面」，而是「用这套方法造区间，重复做 100 次，大约 95 次会罩住真值」。</b>
+  真值是固定的，会动的是区间。
+</p>
+
+<div class="card">
+  <div class="note" style="margin-top:0">
+    <b>三步底层逻辑：</b><br>
+    ① 我们回测算出的 <code>+3.46%</code> 只是<b>一次抽样的结果</b>，换成另一段历史它会变。<br>
+    ② 如果「历史重演很多次」，每次算出的数会散开形成一个分布 —— 这叫<b>抽样分布</b>，它的宽度就是<b>标准误 SE</b>。<br>
+    ③ 于是 <code>CI = 点估计 ± 1.96 × SE</code>。SE 越小（样本越多 / 噪音越小），区间越窄；但<b>覆盖率不变</b>。
+  </div>
+
+  <p style="margin:16px 0 6px">下面这个演示里，<b>真值 μ 是已知的</b>（我们造的总体）。你点一次「做 300 次实验」，看有多少个区间罩住了它。</p>
+
+  <div class="row">
+    <label>每次抽样的样本数 n</label>
+    <input type="range" id="ciN" min="20" max="2000" step="20" value="120">
+    <span class="val" id="ciNv">120</span>
+    <span style="font-size:13px;color:var(--ink2)">（n 越大 → 区间越窄，但覆盖率应该还是 ≈95%）</span>
+  </div>
+  <div class="btns">
+    <button id="ciRun">做 300 次实验</button>
+    <button id="ciClear">清零</button>
+  </div>
+
+  <div style="margin-top:14px;font-size:14px">
+    总体真值 μ = <span class="big" id="ciMu">—</span>
+    　已做 <span class="big" id="ciCnt">0</span> 次实验
+    　罩住真值 <span class="big pos" id="ciCov">—</span>
+  </div>
+  <div style="font-size:13px;color:var(--ink2)" id="ciSe">
+    总体标准差 σ = —　抽样分布标准差（= 标准误 SE）= —
+  </div>
+
+  <p style="margin:14px 0 4px;font-size:13px;color:var(--ink2)">最近 18 次实验各自造出的 95% CI（竖线 = 真值 μ）：</p>
+  <div id="ciBars"></div>
+
+  <p style="margin:14px 0 4px;font-size:13px;color:var(--ink2)">这 300 次实验算出的「平均超额」都落在哪（这就是抽样分布）：</p>
+  <div id="ciHist" style="display:flex;align-items:flex-end;gap:1px;height:130px;
+       border-bottom:1px solid var(--line);padding-bottom:0"></div>
+  <div style="font-size:12px;color:var(--ink2);display:flex;justify-content:space-between">
+    <span id="ciHL">—</span><span id="ciHR">—</span>
+  </div>
+
+  <div class="note good">
+    <b>怎么验证自己真懂了：</b>把 n 从 120 拉到 2000，你会看到直方图<b>变窄</b>（SE 变小、区间变短），
+    但覆盖率仍然停在 95% 附近 —— 这正是置信区间"置信"的含义：<b>它保证的是方法的长期命中率，不是这一次区间的对错。</b>
+  </div>
+  <div class="note" style="background:#fdeceb;border-color:#f3c3bf">
+    <b>回到我们的策略：</b>如果标准误<b>不按交易日整簇</b>来算（把 15 万个事件当 15 万个独立样本），
+    SE 会被<b>严重低估</b>，CI 会假性收窄 —— 一堆纯噪音会被判成"显著有效"。这就是模块④存在的原因。
+  </div>
+</div>
+
+<h2>⑥ 为什么回归的斜率恰好等于 Cov ÷ Var（几何解释：投影）</h2>
+<p class="lead">把 250 天的收益想成 250 维空间里的两个向量。斜率 = 一个向量投影到另一个向量上的倍数。</p>
+
+<div class="card">
+<svg viewBox="0 0 720 300" style="width:100%;height:auto">
+  <defs>
+    <marker id="ah" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#1f2328"/>
+    </marker>
+  </defs>
+  <!-- 市场向量 m -->
+  <line x1="70" y1="250" x2="420" y2="90" stroke="#1a56db" stroke-width="3" marker-end="url(#ah)"/>
+  <text x="425" y="85" font-size="15" fill="#1a56db" font-weight="600">m　市场收益向量</text>
+  <!-- 股票向量 r -->
+  <line x1="70" y1="250" x2="300" y2="70" stroke="#d93025" stroke-width="3" marker-end="url(#ah)"/>
+  <text x="255" y="62" font-size="15" fill="#d93025" font-weight="600">r　个股收益向量</text>
+  <!-- 投影 -->
+  <line x1="70" y1="250" x2="246" y2="163" stroke="#1a56db" stroke-width="5" opacity="0.35"/>
+  <text x="120" y="215" font-size="14" fill="#1a56db">β × m　（投影 = 市场能解释的部分）</text>
+  <!-- 垂线（残差） -->
+  <line x1="246" y1="163" x2="300" y2="70" stroke="#1e8e3e" stroke-width="3" stroke-dasharray="5,4"/>
+  <text x="305" y="120" font-size="14" fill="#1e8e3e">残差 e = r − β·m</text>
+  <text x="305" y="140" font-size="13" fill="#1e8e3e">（就是 α + 噪声）</text>
+  <!-- 直角标记 -->
+  <path d="M246,163 L262,152 L272,168" fill="none" stroke="#1e8e3e" stroke-width="2"/>
+  <!-- 起点 -->
+  <circle cx="70" cy="250" r="4" fill="#1f2328"/>
+  <text x="55" y="270" font-size="13" fill="#5b6470">原点（各天偏离均值的 0 点）</text>
+  <text x="70" y="295" font-size="13" fill="#5b6470">
+    垂线最短 → 残差 e 必须垂直于 m → m·(r − βm) = 0 → β = (m·r)/(m·m) = Cov ÷ Var
+  </text>
+</svg>
+<div class="note good" style="margin-top:6px">
+  <b>一句话：β 就是「个股收益向量投影到市场收益向量上的倍数」；α 就是那个垂直于市场、市场永远解释不了的残差。</b><br>
+  因为垂直，所以 α 和市场<b>天生不相关</b> —— 这正是「α = 与市场无关的选股能力」这句话的几何来源。
+</div>
+</div>
+
+<h2>⑥⁺ 不用向量也能懂：把斜率推导一遍（只要会二次函数）</h2>
+<p class="lead">上面的投影图看不懂没关系 —— 同一个结论用<b>初中数学</b>就能推出来，而且更朴素。</p>
+
+<div class="card">
+  <p><b>问题：</b>有 250 天的数据，每天两个数 —— 市场涨了 <code>m</code>，这票涨了 <code>r</code>。
+     想找一个数 <code>β</code>，让"预测误差的平方和"最小：</p>
+  <div style="background:#fff;border:1px solid var(--line);border-radius:8px;padding:12px 16px;
+              font-size:15px;margin:10px 0">
+    S(β) = (r₁ − β·m₁)² + (r₂ − β·m₂)² + … = <b>Σ(r − β·m)²</b>
+  </div>
+  <p>把它展开（就是完全平方公式）：</p>
+  <div style="background:#fff;border:1px solid var(--line);border-radius:8px;padding:12px 16px;
+              font-size:15px;margin:10px 0">
+    S(β) = Σr² − <b>2β</b>·Σ(m·r) + <b>β²</b>·Σm²
+  </div>
+  <p>这正好是一个关于 β 的<b>开口向上的抛物线</b>（a = Σm² &gt; 0）。抛物线最低点在
+     <code>β = −b/(2a)</code>，也就是：</p>
+  <div style="background:#fff;border:1px solid var(--line);border-radius:8px;padding:12px 16px;
+              font-size:15px;margin:10px 0">
+    β = 2·Σ(m·r) / (2·Σm²) = <b>Σ(m·r) / Σ(m²)</b>
+  </div>
+  <p>再把 m 和 r 各自<b>减去平均值</b>（这正是回归里"带截距 α"在做的事），于是：</p>
+  <div style="background:#fff;border:1px solid var(--line);border-radius:8px;padding:12px 16px;
+              font-size:15px;margin:10px 0">
+    Σ(m·r) → Σ(m−m̄)(r−r̄) = (n−1)·<b>Cov(r,m)</b>　　Σ(m²) → Σ(m−m̄)² = (n−1)·<b>Var(m)</b><br>
+    上下同时约掉 (n−1)：<b class="k">β = Cov(r,m) ÷ Var(m)</b>
+  </div>
+
+  <p style="margin-top:16px"><b>拿 3 天数字亲自验一遍：</b></p>
+  <table>
+    <tr><th>天</th><th style="text-align:right">市场 m</th><th style="text-align:right">个股 r</th>
+        <th style="text-align:right">β=2.0 的误差</th><th style="text-align:right">β=2.5 的误差</th>
+        <th style="text-align:right">β=3.0 的误差</th></tr>
+    <tr><td>第 1 天</td><td class="n">+1</td><td class="n">+2</td>
+        <td class="n">2−2.0×1 = 0.0</td><td class="n">2−2.5×1 = −0.5</td><td class="n">2−3.0×1 = −1.0</td></tr>
+    <tr><td>第 2 天</td><td class="n">−2</td><td class="n">−5</td>
+        <td class="n">−5+4.0 = −1.0</td><td class="n">−5+5.0 = 0.0</td><td class="n">−5+6.0 = +1.0</td></tr>
+    <tr><td>第 3 天</td><td class="n">+1</td><td class="n">+3</td>
+        <td class="n">3−2.0 = +1.0</td><td class="n">3−2.5 = +0.5</td><td class="n">3−3.0 = 0.0</td></tr>
+    <tr><td><b>误差平方和 S(β)</b></td><td class="n"></td><td class="n"></td>
+        <td class="n"><b>2.00</b></td><td class="n neg"><b>0.50 ← 最小</b></td><td class="n"><b>2.00</b></td></tr>
+  </table>
+  <div style="font-size:13px;color:var(--ink2);margin-top:6px">
+    用公式算：Σ(m·r) = 1×2 + (−2)×(−5) + 1×3 = <b>15</b>；Σ(m²) = 1+4+1 = <b>6</b>；
+    β = 15 ÷ 6 = <b>2.5</b> —— 和"试出来最小的是 2.5"完全一致。
+  </div>
+
+  <div class="note good" style="margin-top:14px">
+    <b>所以「斜率 = Cov ÷ Var」不是巧合，它就是"让误差平方和最小的那个 β"。</b><br>
+    上一节的向量投影图，是同一件事的<b>另一种说法</b> —— 数学上完全等价，只是画图的人喜欢用几何语言。
+    你只要记住初中版本的推导就够了。
+  </div>
+  <div class="note">
+    <b>为什么偏要用"平方"而不是"绝对值"？</b>① 平方处处可导，能直接解出顶点；
+    ② 平方对大误差惩罚更重（错 2 个点算 4 倍，不是 2 倍），更符合"不想出现大偏差"的直觉；
+    ③ 高斯当年证明过：如果噪声是正态分布，平方误差给出的就是最可信的估计。
+  </div>
+</div>
+
+<h2>⑦ 为什么 β 用 250 天而不是别的窗口</h2>
+<p class="lead">真实数据（中信证券 600030 / 贵州茅台 600519，截至 2026-10-21）：</p>
+<div class="card">
+  <table>
+    <tr><th>窗口</th><th style="text-align:right">600030 的 β</th><th style="text-align:right">600519 的 β</th><th>说明</th></tr>
+    <tr><td>60 日</td><td class="n">0.218</td><td class="n">−0.372</td><td>太短，噪声主导，读数乱跳</td></tr>
+    <tr><td>120 日</td><td class="n">0.277</td><td class="n">−0.303</td><td>仍然不稳</td></tr>
+    <tr><td><b>250 日</b></td><td class="n"><b>0.415</b></td><td class="n"><b>−0.096</b></td><td><b>≈1 年，业界惯例折中</b></td></tr>
+    <tr><td>500 日</td><td class="n">0.675</td><td class="n">+0.272</td><td>太长，混进两年前的老状态</td></tr>
+  </table>
+  <p style="margin-top:12px">而且 β 本身会随时间漂移（同一只票、同一 250 天窗口、不同起点）：</p>
+  <table>
+    <tr><th>时点</th><th style="text-align:right">600030</th><th style="text-align:right">600519</th></tr>
+    <tr><td>2024-06-20</td><td class="n">0.398</td><td class="n">0.142</td></tr>
+    <tr><td>2025-06-20</td><td class="n">0.762</td><td class="n">0.443</td></tr>
+    <tr><td>2026-06-22</td><td class="n">0.594</td><td class="n">0.093</td></tr>
+    <tr><td>2026-10-21</td><td class="n">0.415</td><td class="n">−0.096</td></tr>
+  </table>
+  <div class="note">
+    <b>所以 250 天是「够稳」和「够新」的折中</b>：短了读数乱跳，长了用的是过期状态。
+    这也是券商风险模型的通行做法（1~2 年日频，或 2~5 年周频）。
+  </div>
+</div>
+
+<h2>⑧ Var / Cov / ρ / σ / β 五兄弟：谁是谁，多少算大</h2>
+<p class="lead">
+  最容易搞混的一点：<b class="k">Cov（协方差）不是相关系数。</b>相关系数 ρ 才是那个 −1 到 +1 的、没有单位的量；
+  Cov 是它的"带单位原始版"。
+</p>
+
+<div class="card">
+  <table>
+    <tr><th style="width:16%">量</th><th style="width:30%">公式</th><th style="width:16%">单位</th><th>直觉</th></tr>
+    <tr>
+      <td><b>Var 方差</b></td>
+      <td><code>Var(X)=Σ(x−x̄)²/(n−1)</code></td>
+      <td>百分比<b>平方</b></td>
+      <td>波动的"面积"，不直观，所以平时不直接看它</td>
+    </tr>
+    <tr>
+      <td><b>σ 标准差</b></td>
+      <td><code>σ=√Var(X)</code></td>
+      <td>百分比</td>
+      <td><b class="k">说"波动多大"时用的就是这个</b></td>
+    </tr>
+    <tr>
+      <td><b>Cov 协方差</b></td>
+      <td><code>Cov(X,Y)=Σ(x−x̄)(y−ȳ)/(n−1)</code></td>
+      <td>百分比<b>平方</b></td>
+      <td>"两个东西一起动"的强度，<b>但带着单位，看不出大小</b></td>
+    </tr>
+    <tr>
+      <td><b>ρ 相关系数</b></td>
+      <td><code>ρ=Cov(X,Y)/(σ_X·σ_Y)</code></td>
+      <td>无单位，锁死 [−1,+1]</td>
+      <td><b class="k">把 Cov 除以两个标准差"标准化"之后的版本</b> = 纯粹的"同步程度"</td>
+    </tr>
+    <tr>
+      <td><b>β</b></td>
+      <td><code>β=Cov(r,m)/Var(m)=ρ×(σ_股/σ_市)</code></td>
+      <td>无单位，倍数</td>
+      <td>市场动 1%，这只票<b>平均</b>动百分之几</td>
+    </tr>
+  </table>
+
+  <div class="note" style="margin-top:14px">
+    <b>一句话串起来：</b>
+    <code>σ</code> 说自己抖得多厉害 → <code>ρ</code> 说跟市场同步得多紧 →
+    <code>β = ρ × (σ股 ÷ σ市)</code> 把这两件事合成一个数：<b>"市场动 1%，我动几个点"</b>。<br>
+    注意 β 里<b>没有 Cov 单独出现的位置</b>是巧合 —— 因为 Cov 已经被拆成 <code>ρ·σ股·σ市</code>，
+    再除以 <code>σ市²</code>（也就是 Var），就消掉了一个 σ市，剩下 <code>ρ×σ股/σ市</code>。
+  </div>
+
+  <p style="margin:16px 0 6px"><b>在 A 股里，这些数大概是多少？（真实数据，等权全 A 为市场基准）</b></p>
+  <table>
+    <tr><th>量</th><th style="text-align:right">市场（等权全A）</th><th style="text-align:right">典型个股</th><th>怎么算大 / 怎么算小</th></tr>
+    <tr><td>日 σ</td><td class="n">1.63%／日（年化 25.7%）</td><td class="n">1.4%（茅台）~5.7%（行云科技）</td><td>个股日波动 2%~4% 是常态；&gt;5% 已经是妖股级别</td></tr>
+    <tr><td>Var(m)</td><td class="n">2.64（万分之一单位）</td><td class="n">—</td><td>只看相对大小即可，绝对值没有直觉</td></tr>
+    <tr><td>ρ（个股 vs 全A）</td><td class="n">1.00（自己跟自己）</td><td class="n">0.3 ~ 0.7 居多</td><td>&gt;0.7 高度同步；&lt;0.2 基本各走各的；负的极罕见</td></tr>
+    <tr><td><b>β</b></td><td class="n">1.000（定义）</td><td class="n">中位数 1.000</td><td><b>1% 分位 0.145 / 25% 分位 0.791 / 75% 分位 1.213 / 99% 分位 1.770</b></td></tr>
+  </table>
+  <div style="font-size:13px;color:var(--ink2);margin-top:6px">
+    全样本 150.2 万个事件：β 中位数 <b>1.000</b>、均值 1.001；β&lt;0 只占 <b>0.53%</b>（茅台这种），β&gt;2 只占 <b>0.27%</b>。
+  </div>
+
+  <div class="note good" style="margin-top:14px">
+    <b>所以"β 大"是什么意思？</b>β=1.107（下跌市深跌组的水平）意味着市场涨 10% 它平均涨 11%，市场跌 10% 它平均跌 11%。
+    <b>它不是能力，是杠杆。</b>在下跌市里你去买 β=1.1 的深跌股，赚到的那点超额里，有 β 倍的市场反弹 ——
+    那不是你选出来的，是市场白送的。<br>
+    反过来看我们最终纪律筛出来的那批：β 中位数只有 <b>0.167</b> —— 几乎不跟市场走，
+    涨的 5.01% 里"应得"的只有 1.55%，剩下 <b>+3.46% 才是真正挑出来的东西</b>。
+  </div>
+</div>
+
+<h2>⑨ 箱宽(振幅) vs 波动率：同一个箱子，能装下完全不同的走法</h2>
+<p class="lead">
+  这两个词在策略文档里经常被混着用，但它们是<b class="k">两个不同的量</b>。
+  下面三条价格路径，<b>箱宽完全一样</b>，走法却天差地别 —— 拖动看看。
+</p>
+
+<div class="card">
+  <div class="btns">
+    <button onclick="draw9()">换一组随机数</button>
+    <button onclick="showRet9=!showRet9; draw9()">显示/隐藏 日收益柱状</button>
+  </div>
+
+  <canvas id="c9" width="1320" height="600"
+          style="width:100%;height:auto;border:1px solid var(--line);border-radius:8px;background:#fff"></canvas>
+
+  <table id="t9" style="margin-top:14px"></table>
+
+  <div class="note" style="margin-top:14px">
+    <b>看明白了吗：三条线的「最高价」和「最低价」完全一样，所以箱宽都是 15%。</b><br>
+    但它们的日波动能差 3~5 倍 —— 因为<b>箱宽只用了两个点（最高、最低），
+    波动率用了全部 30 天的日收益</b>。
+  </div>
+
+  <div class="note good" style="margin-top:10px">
+    <b>两者相关系数只有 0.765</b>（全样本 150.2 万事件实测）—— 高度相关，
+    但还有约四分之一的信息是<b>不重叠</b>的。<br>
+    这也是为什么后面会看到：<b>两个门槛叠加，效果比只用其中一个更好</b>。
+  </div>
+
+  <p style="margin:18px 0 6px"><b>真实换算表：箱宽 15% 到底等于多少波动率？</b></p>
+  <table>
+    <tr>
+      <th>箱宽门槛</th><th style="text-align:right">保留样本</th>
+      <th style="text-align:right">该组日波动中位</th><th style="text-align:right">该组年化波动率中位</th>
+    </tr>
+    <tr><td>≤10%</td><td class="n">11.6%</td><td class="n">1.38%</td><td class="n">21.9%</td></tr>
+    <tr><td>≤12%</td><td class="n">19.2%</td><td class="n">1.92%</td><td class="n">27.5%</td></tr>
+    <tr style="background:#fff4e5"><td><b>≤15%（现用）</b></td><td class="n"><b>31.5%</b></td>
+        <td class="n"><b>2.19%</b></td><td class="n"><b>33.1%</b></td></tr>
+    <tr><td>≤18%</td><td class="n">43.0%</td><td class="n">2.42%</td><td class="n">38.3%</td></tr>
+    <tr><td>≤20%</td><td class="n">49.9%</td><td class="n">2.84%</td><td class="n">41.5%</td></tr>
+    <tr><td>≤25%（v1 用）</td><td class="n">64.2%</td><td class="n">3.20%</td><td class="n">49.0%</td></tr>
+  </table>
+
+  <div class="note" style="margin-top:12px">
+    <b>★ 核心结论：『箱宽 ≤15%』在统计意义上等价于『年化波动率 ≤33%』，不是 15%。</b><br>
+    原策略字面的『波动率 ≤25%』= 箱宽 ≤25%（保留 64.2% 样本），
+    比统计学意义的『年化 25%』（保留 14.1%）<b>宽松 4.5 倍</b>。<br>
+    v1→v2 把 25% 收到 15%，实际是让筛选比例从保留 64.2% 收紧到 31.5%，<b>严了约一倍</b>。
+  </div>
+</div>
+
+<h2>串起来：看任何回测报告时的检查清单</h2>
+<div class="card">
+  <table>
+    <tr><th style="width:36%">要问的问题</th><th>不满足会怎样</th></tr>
+    <tr><td>减掉市场基准了吗？</td><td>把牛市的β当成本事</td></tr>
+    <tr><td>做过 beta 调整吗？</td><td>把"加了杠杆"当成"选得好"，尤其下跌市</td></tr>
+    <tr><td>标准误按交易日聚类了吗？</td><td>置信区间窄好几倍，噪音全变成"规律"</td></tr>
+    <tr><td>有分时间段 / 分子样本复核吗？</td><td>大概率是数据挖掘出来的过拟合</td></tr>
+    <tr><td>样本含幸存者偏差吗？</td><td>退市股缺失，历史表现系统性虚高</td></tr>
+  </table>
+</div>
+
+<p style="color:var(--ink2);font-size:13px;margin-top:28px">
+本页为教学示意，数值用于讲解概念，非实盘回测结果。数据来源：通达信指数日线 / 腾讯前复权日线 / 东方财富财报。不构成投资建议。
+</p>
+
+</div>
+
+<script>
+const fmt=(x,d=1)=>(x>=0?'+':'')+x.toFixed(d)+'%';
+const col=x=>x>0.05?'var(--up)':(x<-0.05?'var(--down)':'var(--ink2)');
+const cls=x=>x>0.05?'pos':(x<-0.05?'neg':'zero');
+
+/* ---------- ① ---------- */
+function m1(){
+  const a=+document.getElementById('m1a').value, b=+document.getElementById('m1b').value;
+  document.getElementById('m1av').textContent=fmt(a,0);
+  document.getElementById('m1bv').textContent=fmt(b,0);
+  document.getElementById('m1av').className='val '+cls(a);
+  document.getElementById('m1bv').className='val '+cls(b);
+  const e=a-b;
+  document.getElementById('m1f').textContent=`${fmt(a,0)} − ${fmt(b,0)}`;
+  const r=document.getElementById('m1r'); r.textContent=fmt(e); r.className='big '+cls(e);
+  // bar: 以 0 为中心，刻度 -40..+40
+  const W=(x)=>Math.abs(x)/40*100;
+  const bar=document.getElementById('m1bar');
+  bar.style.width=W(e)+'%';
+  bar.style.background=col(e);
+  bar.style.left = e>=0 ? '50%' : (50-W(e))+'%';
+  bar.textContent = Math.abs(e)<0.5?'':fmt(e);
+  const msg=document.getElementById('m1msg');
+  msg.className='note '+(e>0?'good':'bad');
+  msg.innerHTML = e>0
+    ? `你跑赢市场 ${e.toFixed(1)} 个百分点 —— 这是<span class="k">第一层</span>结论。但先别高兴，看下一关。`
+    : `你跑输市场 ${Math.abs(e).toFixed(1)} 个百分点。绝对收益为正也可能是跑输，这就是为什么必须减基准。`;
+}
+['m1a','m1b'].forEach(id=>document.getElementById(id).addEventListener('input',m1));
+
+/* ---------- ② ---------- */
+function m2(){
+  const m=+document.getElementById('m2m').value;
+  const b=+document.getElementById('m2b').value;
+  const r=+document.getElementById('m2r').value;
+  document.getElementById('m2mv').textContent=fmt(m,0);
+  document.getElementById('m2bv').textContent=b.toFixed(2);
+  document.getElementById('m2rv').textContent=fmt(r,0);
+  const mkt=b*m, al=r-mkt;
+  document.getElementById('m2t1').textContent=fmt(r);
+  document.getElementById('m2t2').textContent=fmt(mkt);
+  const t3=document.getElementById('m2t3'); t3.textContent=fmt(al); t3.className='n k '+cls(al);
+
+  // 堆叠条：从 -20 到 40，共 60 单位
+  const lo=-20, span=60, pct=x=>(x-lo)/span*100;
+  const w=document.getElementById('m2barwrap'); w.innerHTML='';
+  const z=pct(0);
+  const parts=[{v:mkt,c:'var(--neu)',t:'市场的贡献'},{v:al,c:col(al),t:'你的 alpha'}];
+  let start=(r>=0? z : pct(r));
+  parts.forEach(p=>{
+    const len=Math.abs(p.v)/span*100;
+    const s=document.createElement('div'); s.className='seg';
+    s.style.background=p.c;
+    s.style.left=start+'%'; s.style.width=len+'%';
+    if(len>8) s.textContent=p.t;
+    w.appendChild(s);
+    start += (p.v>=0? len : -len);
+  });
+  const zl=document.createElement('div');
+  zl.style.cssText=`position:absolute;top:0;bottom:0;left:${z}%;width:2px;background:var(--ink);opacity:.5`;
+  w.appendChild(zl);
+
+  const msg=document.getElementById('m2msg');
+  if(al>1){
+    msg.className='note good';
+    msg.innerHTML=`alpha <span class="k">+${al.toFixed(1)}%</span>：市场解释完之后还剩下明显的正超额 —— 这才是真选股能力。`;
+  }else{
+    msg.className='note bad';
+    msg.innerHTML=`alpha 只剩 <span class="k">${fmt(al)}</span>。涨 ${r}% 里有 ${mkt.toFixed(1)}% 是"大盘 × β"本来就给的，<span class="k">你只是悄悄加了 ${b.toFixed(2)} 倍杠杆</span>，不是选得好。`;
+  }
+}
+function preset(k){
+  if(k==='trap'){ document.getElementById('m2m').value=15; document.getElementById('m2b').value=1.66; document.getElementById('m2r').value=25; }
+  else{ document.getElementById('m2m').value=15; document.getElementById('m2b').value=0.85; document.getElementById('m2r').value=22; }
+  m2();
+}
+['m2m','m2b','m2r'].forEach(id=>document.getElementById(id).addEventListener('input',m2));
+
+/* ---------- ③ ---------- */
+function draw3(){
+  const d1=document.getElementById('d1'), d2=document.getElementById('d2');
+  d1.innerHTML=''; d2.innerHTML='';
+  let n1=0;
+  for(let i=0;i<30;i++){
+    const up=Math.random()>0.5; if(up)n1++;
+    const e=document.createElement('div'); e.className='dot';
+    e.style.background = up?'var(--up)':'var(--down)';
+    e.style.opacity = 0.5+Math.random()*0.5;
+    d1.appendChild(e);
+  }
+  // 同一天：先定大盘日基调，再给每只票加小噪声
+  const base=(Math.random()*2-1)*0.06;      // 大盘当天 -6%~+6%
+  let n2=0;
+  for(let i=0;i<30;i++){
+    const v=base + (Math.random()*2-1)*0.012; // 个股噪声很小
+    if(v>0)n2++;
+    const e=document.createElement('div'); e.className='dot';
+    e.style.background = v>0?'var(--up)':'var(--down)';
+    e.style.opacity = 0.55+Math.min(Math.abs(v)/0.08,1)*0.45;
+    d2.appendChild(e);
+  }
+  document.getElementById('d3msg').innerHTML =
+    `左边红绿混杂（${n1} 红 / ${30-n1} 绿）—— 每个都是新信息。`+
+    `右边几乎清一色（${n2} 红 / ${30-n2} 绿）—— <span class="k">它们不是 30 个证据，是 1 个"今天大盘"的 30 个复制品</span>。`+
+    `所以按 30 个独立样本算出来的标准误会严重偏小。`;
+}
+
+/* ---------- ④ ---------- */
+let BOOT=null;
+function rnorm(){let u=0,v=0;while(u===0)u=Math.random();while(v===0)v=Math.random();
+  return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);}
+function bootSamples(items,clusters){
+  const out=[];
+  for(let b=0;b<1000;b++){
+    let acc=[];
+    if(clusters){ for(let k=0;k<clusters.length;k++){
+        acc=acc.concat(clusters[Math.floor(Math.random()*clusters.length)]); } }
+    else { for(let k=0;k<items.length;k++){
+        acc.push(items[Math.floor(Math.random()*items.length)]); } }
+    out.push(acc.reduce((a,b)=>a+b,0)/acc.length);
+  }
+  return out;
+}
+function drawHist(s){
+  const el=document.getElementById('hist'); el.innerHTML='';
+  const lo=Math.min(...s), hi=Math.max(...s), B=44;
+  const cnt=new Array(B).fill(0);
+  s.forEach(v=>{ const i=Math.min(B-1,Math.floor((v-lo)/(hi-lo+1e-9)*B)); cnt[i]++; });
+  const mx=Math.max(...cnt);
+  cnt.forEach(c=>{
+    const d=document.createElement('div');
+    d.style.cssText=`flex:1;height:${Math.max(2,c/mx*100)}%;background:var(--accent);opacity:.7;border-radius:2px 2px 0 0`;
+    d.title=c+' 次';
+    el.appendChild(d);
+  });
+}
+function runBoot(){
+  // 造一份"1700 个交易日 × 每天若干票"的合成数据，保留日内相关性
+  const D=1700, TRUE=4.2;
+  const days=[];
+  for(let d=0;d<D;d++){
+    const shock=rnorm()*2.6;            // 当天共同冲击（大盘）
+    const n=6+Math.floor(Math.random()*10);
+    const arr=[];
+    for(let i=0;i<n;i++) arr.push(TRUE + shock + rnorm()*1.4); // 个股噪声
+    days.push(arr);
+  }
+  const all=[].concat(...days);
+  function boot(items,clusters){
+    const out=[];
+    for(let b=0;b<1000;b++){
+      let acc=[];
+      if(clusters){ for(let k=0;k<clusters.length;k++){
+          acc=acc.concat(clusters[Math.floor(Math.random()*clusters.length)]); } }
+      else { for(let k=0;k<items.length;k++){
+          acc.push(items[Math.floor(Math.random()*items.length)]); } }
+      out.push(acc.reduce((a,b)=>a+b,0)/acc.length);
+    }
+    out.sort((a,b)=>a-b);
+    return [out[49], out[949]];   // 5% / 95% 分位 → 90% CI
+  }
+  const naive=boot(all,null);
+  const clusS=bootSamples(null,days);          // 整簇：保留 1000 个结果用于画直方图
+  const clus=[clusS[49],clusS[949]];
+  BOOT={naive,clus,TRUE};
+  drawAxis('ax1',naive,'逐事件（错）');
+  drawAxis('ax2',clus ,'整簇（对）');
+  drawHist(clusS);
+  const w1=naive[1]-naive[0], w2=clus[1]-clus[0];
+  document.getElementById('bootmsg').className='note bad';
+  document.getElementById('bootmsg').innerHTML =
+    `同一个真实超额 ${TRUE}%，错误做法给出 CI [${naive[0].toFixed(1)}, ${naive[1].toFixed(1)}]（宽 ${w1.toFixed(1)}pp），`+
+    `正确做法给出 [${clus[0].toFixed(1)}, ${clus[1].toFixed(1)}]（宽 ${w2.toFixed(1)}pp）。`+
+    `<span class="k">整簇的区间宽了约 ${(w2/w1).toFixed(1)} 倍</span> —— 前者那个窄区间是假的，会把噪音当成确定规律。`;
+}
+function drawAxis(id,ci,label){
+  const el=document.getElementById(id); el.innerHTML='';
+  const lo=-3, hi=11, to=x=>(x-lo)/(hi-lo)*100;
+  const s=document.createElement('div'); s.className='span';
+  s.style.left=to(ci[0])+'%'; s.style.width=(to(ci[1])-to(ci[0]))+'%';
+  s.style.background='rgba(26,86,219,.35)';
+  s.style.border='1px solid var(--accent)';
+  el.appendChild(s);
+  const z=document.createElement('div'); z.className='zero'; z.style.left=to(0)+'%'; el.appendChild(z);
+  const p=document.createElement('div'); p.className='pt'; p.style.left=to(4.2)+'%'; el.appendChild(p);
+  [ci[0],ci[1]].forEach((v,i)=>{
+    const t=document.createElement('div'); t.className='tick'; t.style.left=to(v)+'%';
+    t.textContent=v.toFixed(1); el.appendChild(t);
+  });
+  const t0=document.createElement('div'); t0.className='tick'; t0.style.left=to(0)+'%'; t0.textContent='0'; el.appendChild(t0);
+}
+
+/* ---------- ⑤ ---------- */
+function draw5(){
+  const el=document.getElementById('ax3'); el.innerHTML='';
+  const lo=-6,hi=9,to=x=>(x-lo)/(hi-lo)*100;
+  const z=document.createElement('div'); z.className='zero'; z.style.left=to(0)+'%'; el.appendChild(z);
+  const cases=[[1.7,7.1,'var(--up)',20],[1.4,5.6,'var(--up)',34],[-0.9,1.0,'var(--neu)',48],[-4.8,-1.4,'var(--down)',62]];
+  cases.forEach(([a,b,c,top])=>{
+    const s=document.createElement('div'); s.className='span';
+    s.style.left=to(a)+'%'; s.style.width=(to(b)-to(a))+'%';
+    s.style.background=c; s.style.opacity='.75';
+    s.style.top=(top-16)+'px';
+    el.appendChild(s);
+    const t=document.createElement('div'); t.className='tick';
+    t.style.left=to((a+b)/2)+'%'; t.style.top=(top+6)+'px';
+    t.textContent=`[${a}, ${b}]`; el.appendChild(t);
+  });
+  el.style.height='110px';
+}
+
+/* ---------- ⑤⁺ 置信区间覆盖率演示 ---------- */
+(function(){
+  let s = 20261021;
+  const rnd = ()=>{ s = (s*1103515245 + 12345) % 2147483648; return s/2147483648; };
+  const gauss = ()=>{
+    const u = Math.max(rnd(), 1e-12), v = rnd();
+    return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);
+  };
+  // 造一个右偏的「60日超额收益」总体：多数小赚小亏，少数大涨
+  const POP = new Float64Array(200000);
+  for (let i=0;i<POP.length;i++){
+    let x = 0.6*gauss();
+    if (rnd() < 0.10) x += 0.15*Math.max(0, gauss()+1.0);
+    POP[i] = x;
+  }
+  let sum=0; for (let i=0;i<POP.length;i++) sum+=POP[i];
+  const MU = sum/POP.length;
+  let ss=0; for (let i=0;i<POP.length;i++){ const d=POP[i]-MU; ss+=d*d; }
+  const SIG = Math.sqrt(ss/(POP.length-1));
+
+  const elN=document.getElementById('ciN'), elNv=document.getElementById('ciNv');
+  const elMu=document.getElementById('ciMu'), elCnt=document.getElementById('ciCnt');
+  const elCov=document.getElementById('ciCov'), elSe=document.getElementById('ciSe');
+  const elBars=document.getElementById('ciBars'), elHist=document.getElementById('ciHist');
+  const elHL=document.getElementById('ciHL'), elHR=document.getElementById('ciHR');
+
+  elMu.textContent = MU.toFixed(2)+'%';
+  let total=0, hit=0, means=[];
+
+  function drawBars(last){
+    elBars.innerHTML='';
+    let lo=MU, hi=MU;
+    last.forEach(c=>{ lo=Math.min(lo,c.a); hi=Math.max(hi,c.b); });
+    const pad=(hi-lo)*0.08+0.2, L=lo-pad, R=hi+pad;
+    const to=x=>(x-L)/(R-L)*100;
+    last.forEach(c=>{
+      const w=document.createElement('div'); w.className='barwrap'; w.style.height='16px';
+      w.style.margin='3px 0';
+      const z=document.createElement('div'); z.className='zero';
+      z.style.left=to(MU)+'%'; z.style.width='2px'; z.style.background='var(--ink)';
+      z.style.opacity='.55'; z.style.top='-2px'; z.style.bottom='-2px'; z.style.height='auto';
+      w.appendChild(z);
+      const seg=document.createElement('div'); seg.className='seg';
+      seg.style.left=to(c.a)+'%'; seg.style.width=(to(c.b)-to(c.a))+'%';
+      seg.style.background = (c.a<=MU && MU<=c.b) ? 'var(--up)' : 'var(--down)';
+      seg.style.opacity='.8'; seg.style.fontSize='0';
+      w.appendChild(seg);
+      elBars.appendChild(w);
+    });
+  }
+
+  function drawHist(){
+    elHist.innerHTML='';
+    if(!means.length){ elHL.textContent='—'; elHR.textContent='—'; return; }
+    const lo=Math.min.apply(null,means), hi=Math.max.apply(null,means);
+    const nb=46, w=(hi-lo)/nb || 1, bins=new Array(nb).fill(0);
+    means.forEach(m=>{ let k=Math.floor((m-lo)/w); if(k<0)k=0; if(k>=nb)k=nb-1; bins[k]++; });
+    const mx=Math.max.apply(null,bins);
+    bins.forEach(v=>{
+      const d=document.createElement('div');
+      d.style.flex='1'; d.style.height=Math.max(1, v/mx*100)+'%';
+      d.style.background='var(--accent)'; d.style.opacity='.65';
+      d.title=v+' 次';
+      elHist.appendChild(d);
+    });
+    elHL.textContent=lo.toFixed(2)+'%'; elHR.textContent=hi.toFixed(2)+'%';
+  }
+
+  function run(){
+    const n=+elN.value;
+    const last=[];
+    for(let k=0;k<300;k++){
+      // 一次抽样，用同一批样本同时算均值和标准差
+      let a=0, a2=0;
+      for(let i=0;i<n;i++){
+        const x=POP[Math.floor(rnd()*POP.length)];
+        a+=x; a2+=x*x;
+      }
+      const m=a/n;
+      const sd=Math.sqrt(Math.max(0,(a2-n*m*m)/(n-1))), se=sd/Math.sqrt(n);
+      const ci=[m-1.96*se, m+1.96*se];
+      total++; if(ci[0]<=MU && MU<=ci[1]) hit++;
+      means.push(m);
+      if(k>=300-18) last.push({a:ci[0], b:ci[1]});
+    }
+    elCnt.textContent=total;
+    elCov.textContent=(hit/total*100).toFixed(1)+'%';
+    elCov.className='big '+(hit/total>=0.9?'pos':'neg');
+    let mm=0; means.forEach(x=>mm+=x); mm/=means.length;
+    let vv=0; means.forEach(x=>vv+=(x-mm)*(x-mm)); vv=Math.sqrt(vv/(means.length-1));
+    elSe.textContent=`总体标准差 σ = ${SIG.toFixed(2)}%　`
+      + `抽样分布标准差（= 标准误 SE，n=${n}）= ${vv.toFixed(3)}%　`
+      + `理论值 σ/√n = ${(SIG/Math.sqrt(n)).toFixed(3)}%`;
+    drawBars(last); drawHist();
+  }
+
+  elN.addEventListener('input',()=>{ elNv.textContent=elN.value; });
+  document.getElementById('ciRun').addEventListener('click',run);
+  document.getElementById('ciClear').addEventListener('click',()=>{
+    total=0; hit=0; means=[];
+    elCnt.textContent='0'; elCov.textContent='—'; elCov.className='big';
+    elBars.innerHTML=''; elHist.innerHTML=''; elHL.textContent='—'; elHR.textContent='—';
+    elSe.textContent=`总体标准差 σ = ${SIG.toFixed(2)}%　抽样分布标准差（= 标准误 SE）= —`;
+  });
+  elNv.textContent=elN.value;
+  elSe.textContent=`总体标准差 σ = ${SIG.toFixed(2)}%　抽样分布标准差（= 标准误 SE）= —`;
+})();
+
+/* ---------- ⑨ 箱宽(振幅) vs 波动率 ---------- */
+let seed9 = 20261026;
+let showRet9 = false;
+function rnd9(){
+  seed9 = (seed9 * 1664525 + 1013904223) % 4294967296;
+  return seed9 / 4294967296;
+}
+function norm01(x){
+  const lo = Math.min.apply(null, x), hi = Math.max.apply(null, x);
+  return x.map(v => (v - lo) / (hi - lo || 1));
+}
+function draw9(){
+  const cv = document.getElementById('c9');
+  if (!cv) return;
+  const g = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  g.clearRect(0, 0, W, H);
+  g.fillStyle = '#ffffff'; g.fillRect(0, 0, W, H);
+
+  const N = 30;                 // 30 个交易日
+  const LO = 100, HI = 115;     // 箱宽 = 115/100 - 1 = 15%（三条线共用）
+
+  // 三条走法：都先归一化到 [0,1]，再映射到同一个 [LO,HI]
+  // A 锯齿：每日大幅上下跳，但始终不破箱
+  let rawA = [];
+  for (let i = 0; i < N; i++) rawA.push(0.5 + (rnd9() - 0.5) * 0.86);
+  // B 趋势：几乎单调上行
+  let rawB = [];
+  for (let i = 0; i < N; i++) rawB.push(i / (N - 1) + (rnd9() - 0.5) * 0.02);
+  // C 圆弧：先上后下
+  let rawC = [];
+  for (let i = 0; i < N; i++) rawC.push(Math.sin(Math.PI * i / (N - 1)));
+
+  const paths = [
+    {name: "A 锯齿震荡", raw: rawA, color: "#f59e0b",
+     desc: "每天大起大落，但最高最低都不破箱"},
+    {name: "B 单边上行", raw: rawB, color: "#1a56db",
+     desc: "几乎一路向上，每天涨幅差不多"},
+    {name: "C 先涨后跌", raw: rawC, color: "#7c3aed",
+     desc: "平滑地冲高再回落，走成圆弧"},
+  ];
+
+  const PH = 168, TOP = 40, PAD = 46, PW = W - PAD * 2 - 150;
+  const stats = [];
+
+  paths.forEach((p, pi) => {
+    const n01 = norm01(p.raw);
+    const price = n01.map(v => LO + (HI - LO) * v);
+    const y0 = TOP + pi * PH;
+
+    // 箱体底/顶
+    g.fillStyle = "#eff3f8";
+    g.fillRect(PAD, y0, PW, 118);
+    g.strokeStyle = "#c9d3de"; g.setLineDash([5, 4]); g.lineWidth = 1;
+    [y0, y0 + 118].forEach(y => {
+      g.beginPath(); g.moveTo(PAD, y + 0.5); g.lineTo(PAD + PW, y + 0.5); g.stroke();
+    });
+    g.setLineDash([]);
+
+    // 价格线
+    g.strokeStyle = p.color; g.lineWidth = 2.2; g.beginPath();
+    price.forEach((v, i) => {
+      const x = PAD + (PW * i) / (N - 1);
+      const y = y0 + 118 - 118 * ((v - LO) / (HI - LO));
+      i ? g.lineTo(x, y) : g.moveTo(x, y);
+    });
+    g.stroke();
+
+    // 日收益柱状（可选）
+    if (showRet9) {
+      const rets = [];
+      for (let i = 1; i < N; i++) rets.push(price[i] / price[i - 1] - 1);
+      const mx = Math.max.apply(null, rets.map(Math.abs)) || 0.01;
+      for (let i = 0; i < rets.length; i++) {
+        const x = PAD + (PW * (i + 1)) / (N - 1);
+        const h = (Math.abs(rets[i]) / mx) * 26;
+        const base = y0 + 152;
+        // A股习惯：涨红跌绿
+        g.fillStyle = rets[i] >= 0 ? "#d93025" : "#1e8e3e";
+        if (rets[i] >= 0) g.fillRect(x - 3, base - h, 6, h);
+        else g.fillRect(x - 3, base, 6, h);
+      }
+      g.fillStyle = "#8a94a2"; g.font = "11px system-ui";
+      g.fillText("日收益", PAD + PW + 8, y0 + 152);
+    }
+
+    g.fillStyle = "#1f2937"; g.font = "bold 13px system-ui";
+    g.fillText(p.name, PAD, y0 - 10);
+    g.fillStyle = "#6b7280"; g.font = "12px system-ui";
+    g.fillText(p.desc, PAD + 96, y0 - 10);
+
+    // 统计
+    const rets = [];
+    for (let i = 1; i < N; i++) rets.push(price[i] / price[i - 1] - 1);
+    const mean = rets.reduce((a, b) => a + b, 0) / rets.length;
+    const varr = rets.reduce((a, b) => a + (b - mean) ** 2, 0) / (rets.length - 1);
+    const sd = Math.sqrt(varr);
+    const w = Math.max.apply(null, price) / Math.min.apply(null, price) - 1;
+    stats.push({name: p.name, color: p.color, width: w, sd: sd, ann: sd * Math.sqrt(250)});
+  });
+
+  const tb = document.getElementById('t9');
+  let h = `<tr><th style="width:22%">走法</th><th style="text-align:right">箱宽(振幅)</th>
+           <th style="text-align:right">日收益标准差</th><th style="text-align:right">年化波动率</th></tr>`;
+  stats.forEach(s => {
+    h += `<tr><td><b style="color:${s.color}">${s.name}</b></td>
+          <td class="n"><b>${(s.width*100).toFixed(1)}%</b></td>
+          <td class="n">${(s.sd*100).toFixed(2)}%</td>
+          <td class="n"><b>${(s.ann*100).toFixed(1)}%</b></td></tr>`;
+  });
+  tb.innerHTML = h;
+}
+
+m1(); m2(); draw3(); runBoot(); draw5(); draw9();
+</script>
+</body>
+</html>
