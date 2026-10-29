@@ -138,7 +138,7 @@ output/     运行产出（不入库）
 
 一个数据源一个文件是适配器模式的标准做法：新增源只加文件、不动老代码；一个源出问题不牵连另一个。合并成 500 多行的混合文件，反而更难定位问题——**对人和 AI 都是**。
 
-> ⚠️ **已知限制**：`yh_tdx.py` 依赖本机通达信 MCP 服务。组员机器若未配置 `CODEBUDDY_MCP_CONFIG`，`run_daily.py --fresh` 在重算周期标签这一步会失败。使用打包数据（含 `regime_state.pkl`）可跳过该步骤正常选股。
+> 通达信 MCP 的依赖情况见 [第六节](#六通达信-mcp-依赖说明组员必读)。结论：**日常选股不需要它。**
 
 ---
 
@@ -169,7 +169,70 @@ python research/yh_regime_calib6.py
 
 ---
 
-## 六、数据来源
+## 六、通达信 MCP 依赖说明（组员必读）
+
+### 结论先说
+
+**日常选股不需要通达信。** 只有显式加 `--idx` 参数时才需要。
+
+### 它是怎么连的
+
+`yh_tdx.py` 通过 MCP-over-HTTP(SSE) 连接本机的 `tdx-connector` 服务，地址从环境变量读取：
+
+```python
+# yh_tdx.py:20
+cfg = json.loads(os.environ["CODEBUDDY_MCP_CONFIG"])
+```
+
+这个变量由 WorkBuddy / CodeBuddy 注入。**在普通终端、组员机器上都不存在**，所以在那些环境里调用会失败。
+
+### 影响范围（比听起来小得多）
+
+| 场景 | 需要通达信？ | 说明 |
+|---|---|---|
+| `python run_daily.py` | ❌ | 只读本地缓存 |
+| `python run_daily.py --fresh` | ❌ **默认不需要** | 指数面板沿用 `cache/tdx_idx_*.pkl` |
+| `python run_daily.py --fresh --idx` | ✅ 需要 | 只有这个组合会强制重拉五大指数 |
+| **周期判定 UP/CHOP/DOWN** | ❌ | **只依赖市场宽度 `breadth`**，指数仅作观察字段 |
+
+`run_daily.py` 的刷新流程（第 164~175 行）对指数拉取失败**已内置降级**：捕获异常 → 沿用旧 `index_panel.pkl` → 两者都没有就置空，并打印提示，**不中断刷新**。
+
+### 你会看到的输出长这样
+
+```
+[2/4] 重拉通达信指数 ...
+  [降级] 通达信指数拉取失败：'CODEBUDDY_MCP_CONFIG'
+  已沿用旧指数面板，最新 2026-10-28（指数仅作观察字段，不影响周期判定）
+```
+
+**看到这行不用处理**，后面的选股会照常跑完。
+
+### 如果要完整启用通达信
+
+1. 本机运行 `tdx-connector`（MCP-over-HTTP 服务）
+2. 设环境变量指向它：
+
+```bash
+export CODEBUDDY_MCP_CONFIG='{"mcpServers":{"tdx-connector":{"url":"http://127.0.0.1:PORT/sse"}}}'
+```
+
+3. 自检：
+
+```bash
+python -c "import yh_tdx; print('工具数:', len(yh_tdx.TdxMcp().list_tools()))"
+```
+
+能打印工具数 = 连通；报 `KeyError: 'CODEBUDDY_MCP_CONFIG'` = 环境变量没设。
+
+### 为什么不改代码
+
+- 降级逻辑**已经存在**，再加一层是重复
+- 周期判定不依赖指数，缺指数不改变策略结论
+- 动数据接入层收益低、风险高
+
+---
+
+## 七、数据来源
 
 - **行情**：腾讯前复权日线、换手率
 - **指数**：通达信五大指数日线
@@ -177,6 +240,6 @@ python research/yh_regime_calib6.py
 
 ---
 
-## 七、免责声明
+## 八、免责声明
 
 本项目全部内容均为历史统计与回测结论，**不构成任何投资建议**，据此操作风险自负。
