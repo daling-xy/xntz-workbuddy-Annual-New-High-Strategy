@@ -87,6 +87,9 @@ def main() -> None:
     print("体积: %.0f MB（压缩率 %.2fx）"
           % (mb(out), total / max(mb(out), 0.01)), flush=True)
     print("用时: %.0f 秒" % (time.time() - t0), flush=True)
+    if mb(out) > 1900:
+        print("⚠️  超过 GitHub Release 单文件 2 GB 上限：需拆分上传，或改用对象存储",
+              flush=True)
     print("\n组员侧解压: unzip %s -d cache/" % os.path.basename(out), flush=True)
 
 
