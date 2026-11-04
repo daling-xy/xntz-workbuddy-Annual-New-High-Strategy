@@ -48,6 +48,9 @@ PARAMS = {
     # 效果：日均票 4.03→3.48，收益 +2.58%→+2.56%，胜率 51.2%→53.3%，
     #       大亏率 6.0%→4.7%。
     "ret60_max": 0.19,       # 近60日涨幅 <= 19%（None = 不设）
+    # 2026-11-03 曾临时停用一天做对照实验（用户指示），当日即恢复。
+    #   停用时池 8→9 只，仅多中国神华（ret60=21.6% 过热）。历史证据不变：
+    #   收益 +2.58%→+2.56%（几乎不动），大亏率 6.0%→4.7%（8/8 年方向一致）。
     # --- 基本面 ---
     # 营收增速门槛：2026-10-27 起【全周期关闭】。
     #   区块 bootstrap 复核（见 versions/推导归档_参数实证_20261027.md）显示：
@@ -424,7 +427,20 @@ def screen(panel: pd.DataFrame, params: Optional[Dict] = None,
     # RS 相对强度（O'Neil RS rating 同义）：当日全市场 ret250 百分位，仅标注。
     # 2026-10-28 诊断：RS>=85 组点估计最高（+4.28%）、胜率 63.3%，但 CI 含零 → 不做门槛。
     if "ret250" in df.columns:
-        df["rs_pct"] = pd.to_numeric(df["ret250"], errors="coerce").rank(pct=True) * 100.0
+        r250 = pd.to_numeric(df["ret250"], errors="coerce")
+        # 口径对齐回测脚本 yh_d3_d6_rs.py：必须在「当日」横截面内排名。
+        # 面板里停牌股会沿用旧 bar（date 不是最新日），直接全体 rank 会把旧价混进今日截面。
+        # 做法：以最新交易日的 ret250 分布为参照，用经验分位给所有票打分。
+        if "date" in df.columns and df["date"].nunique() > 1:
+            latest = df["date"].max()
+            ref = r250[df["date"] == latest].dropna().sort_values().values
+            if len(ref) > 0:
+                df["rs_pct"] = (np.searchsorted(ref, r250.values, side="right")
+                                / float(len(ref)) * 100.0)
+            else:
+                df["rs_pct"] = r250.rank(pct=True) * 100.0
+        else:
+            df["rs_pct"] = r250.rank(pct=True) * 100.0
     else:
         df["rs_pct"] = np.nan
     df["pass"] = struct & _rev_gate(df, p) & _rev_prev_gate(df, p)

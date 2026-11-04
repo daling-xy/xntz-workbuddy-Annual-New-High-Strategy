@@ -295,7 +295,25 @@ def fetch_fundamentals(report_dates: Sequence[str] = ("2026-06-30", "2025-06-30"
             "sortColumns": "SECURITY_CODE,REPORTDATE",
             "sortTypes": "1,-1",
         }
-        r = _session().get(url, params=params, headers={**UA, "Referer": "https://data.eastmoney.com/"}, timeout=30)
+        # 2026-10-30 修复：东财分页接口偶发 ConnectTimeout（实测 pageNumber=2/33 均触发过），
+        #   原实现是裸 session.get + timeout=30，一次超时即整轮崩。
+        #   改为：超时放宽到 60s，失败重试 4 次并按 1.5/3/4.5s 退避。
+        r = None
+        _last_err = None
+        for _attempt in range(4):
+            try:
+                r = _session().get(url, params=params,
+                                   headers={**UA, "Referer": "https://data.eastmoney.com/"},
+                                   timeout=60)
+                break
+            except Exception as _e:              # noqa: BLE001
+                _last_err = _e
+                if _attempt < 3:
+                    time.sleep(1.5 * (_attempt + 1))
+        if r is None:
+            print("   [财报] 第 %d 页重试 4 次仍失败，放弃本轮：%s"
+                  % (page, type(_last_err).__name__))
+            break
         try:
             j = r.json()
         except Exception:
