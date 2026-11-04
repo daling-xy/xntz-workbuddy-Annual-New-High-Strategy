@@ -1,6 +1,6 @@
 # research — 研究脚本
 
-这里放策略开发过程中的**研究、校准、诊断脚本**，共 28 个。
+这里放策略开发过程中的**研究、校准、诊断脚本**，共 29 个。
 它们**不参与日常选股流程**（`run_daily.py` 完全不会用到），只在需要复核历史结论、重新做参数研究时才会跑。
 
 ## 怎么运行
@@ -23,6 +23,7 @@ python -m research.yh_regime_calib6
 | 类别 | 脚本 | 用途 |
 |---|---|---|
 | **数据准备** | `yh_fetch_long2.py` | 拉取 2018 年至今全历史日线（重建 `cache/kline_long2.pkl`，首次运行必需） |
+| | `yh_fetch_raw.py` | 拉取**未复权**日线 + 股票名称（`cache/kline_raw.pkl`）。涨停/跌停判定必须用未复权价，前复权已被除权因子缩放。内置 3 只预检 |
 | **参数校准** | `yh_calibrate.py` | v1 参数校准：每个条件的超额收益检验 |
 | | `yh_regime_calib6.py` | 分周期参数校准（**定稿版**，`--fresh` 之后建议每季度跑一次「三段全胜」复检） |
 | | `yh_final_calib2.py` | 终值校准（被 `yh_sample_window`、`yh_window_deep` 依赖） |
