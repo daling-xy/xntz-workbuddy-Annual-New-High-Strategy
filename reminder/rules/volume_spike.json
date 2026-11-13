@@ -1,0 +1,18 @@
+{
+  "id": "volume_spike",
+  "name": "放量上涨",
+  "enabled": false,
+  "type": "price",
+  "scope": "symbols",
+  "symbols": ["600519", "000001"],
+  "conditions": [
+    {"field": "change_pct", "op": ">=", "value": 3.0},
+    {"field": "turnover", "op": ">=", "value": 5.0}
+  ],
+  "logic": "and",
+  "cooldown_seconds": 900,
+  "severity": "info",
+  "channels": [],
+  "message": "{symbol} {name} 涨 {change_pct}%，换手 {turnover}%，现价 {close}",
+  "note": "示例：两个条件同时满足才报（logic=and）"
+}

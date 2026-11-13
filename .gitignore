@@ -15,6 +15,10 @@ output/
 dist/
 *.log
 
+# reminder 运行时产物（每台机器各自生成，不该进库）
+reminder/state.json
+reminder/alerts.jsonl*
+
 # ============================================
 # Python
 # ============================================

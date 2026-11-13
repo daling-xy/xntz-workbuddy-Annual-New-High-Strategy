@@ -34,6 +34,15 @@ DEFAULT_PARAMS = {
     "high_days": 250,     # 一年（250 交易日）
     "box_days": 30,       # 箱体窗口
     "tight_days": 10,     # 末端收缩窗口
+    # 坑后平台卫星池（2026-11-12）：pcb_lookback 必须非 None，否则面板不算 PCB 列
+    "pcb_lookback": 120,
+    "pcb_lookback_high": 120,
+    "pcb_min_dd": 0.25,
+    "pcb_repair": 0.90,
+    "pcb_min_days": 10,
+    "pcb_max_days": 45,
+    "pcb_plat_w": 0.30,
+    "pcb_break": 0.95,
 }
 
 
@@ -136,9 +145,22 @@ def build_panel(asof_offset: int = 1, days: int = 320,
 
     tag = f"panel_{days}_{asof_offset}.pkl"
     path = os.path.join(CACHE, tag)
+    # 2026-11-12：缓存版本校验。v2.3 精准形态门需要 hi250_ago / width20 / ret10 / hi10 等列，
+    # 旧缓存缺列会让新门直接抛 KeyError。这里做「必需列」检查，缺任一列即强制重算，
+    # 避免用户手动删缓存（也避免旧缓存静默产出错误筛选结果）。
+    REQUIRED_COLS = ("width30", "width20", "width10", "contraction", "hi10", "hi30", "hi250_ago", "ret10",
+                     "base_days", "pcb_hit")
     if os.path.exists(path) and not force:
-        with open(path, "rb") as f:
-            return pickle.load(f)
+        try:
+            with open(path, "rb") as f:
+                cached = pickle.load(f)
+        except Exception as e:
+            # 旧缓存可能由不同 pandas 版本写入（StringDtype 反序列化不兼容）→ 强制重算，
+            # 不能让它打断每日跑批。
+            print(f"  [降级] 面板缓存不可读（{type(e).__name__}），强制重算")
+            cached = None
+        if cached is not None and all(c in cached.columns for c in REQUIRED_COLS):
+            return cached
 
     fin = build_fundamentals_frame()
     codes = sorted(fin.index.tolist())
@@ -156,6 +178,14 @@ def build_panel(asof_offset: int = 1, days: int = 320,
         feats = features_at(bars, p, idx=idx)
         if not feats:
             continue
+        # 坑后平台（PCB）卫星池因子：需要完整收盘序列，必须在这里算（面板是横截面）
+        if p.get("pcb_lookback") is not None:
+            import numpy as _np
+            from yh_pcb import pcb_at
+            _cl = _np.array([b["close"] for b in bars], dtype=float)
+            feats.update(pcb_at(_cl, idx, p) or {"pcb_hit": 0})
+        else:
+            feats["pcb_hit"] = 0
         # 停牌过滤：近 5 日有成交额为 0 的
         recent_amt = [b.get("amount", 0) for b in bars[idx - 4: idx + 1]]
         if min(recent_amt) <= 0:

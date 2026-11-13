@@ -179,9 +179,17 @@ def refresh(fin: bool = False, args_idx: bool = False, asof: int = 1) -> None:
     print("[3/4] 重算市场宽度与周期标签 ...")
     br_new = build_breadth("320", 60, force=True)
     old_path = _p("breadth_long_60.pkl")
+    br_old = None
     if os.path.exists(old_path):
-        with open(old_path, "rb") as f:
-            br_old = pickle.load(f)
+        try:
+            with open(old_path, "rb") as f:
+                br_old = pickle.load(f)
+        except Exception as e:
+            # 旧缓存可能是用不同 pandas 版本写的（StringDtype 反序列化不兼容）。
+            # 宽度只用于周期标签（观察字段），降级为"只用新拉的 320 天"即可，不中断刷新。
+            print(f"  [降级] 旧宽度缓存不可读（{type(e).__name__}），本轮只用新数据重建宽度")
+            br_old = None
+    if br_old is not None:
         cut = br_new["date"].min()
         br = pd.concat([br_old[br_old["date"] < cut], br_new], ignore_index=True)
         print(f"  宽度：长历史保留到 {cut} 之前，之后用新数据覆盖；合计 {len(br)} 天")

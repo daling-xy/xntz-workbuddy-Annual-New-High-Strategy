@@ -1,0 +1,17 @@
+{
+  "id": "stop_loss_600519",
+  "name": "贵州茅台跌破止损",
+  "enabled": false,
+  "type": "price",
+  "scope": "symbols",
+  "symbols": ["600519"],
+  "conditions": [
+    {"field": "close", "op": "<=", "value": 1450.0}
+  ],
+  "logic": "and",
+  "cooldown_seconds": 3600,
+  "severity": "critical",
+  "channels": [],
+  "message": "{symbol} {name} 现价 {close}，已跌破止损线 1450",
+  "note": "示例：把 enabled 改成 true 并改掉价格就能用"
+}

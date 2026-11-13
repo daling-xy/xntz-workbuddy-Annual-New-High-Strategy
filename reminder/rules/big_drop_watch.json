@@ -1,0 +1,17 @@
+{
+  "id": "big_drop_watch",
+  "name": "单日大跌提醒",
+  "enabled": false,
+  "type": "price",
+  "scope": "symbols",
+  "symbols": ["600519", "000001"],
+  "conditions": [
+    {"field": "change_pct", "op": "<=", "value": -5.0}
+  ],
+  "logic": "and",
+  "cooldown_seconds": 1800,
+  "severity": "critical",
+  "channels": [],
+  "message": "{symbol} {name} 今日跌幅 {change_pct}%，现价 {close}",
+  "note": "示例：AND 多条件见 volume_spike.json"
+}

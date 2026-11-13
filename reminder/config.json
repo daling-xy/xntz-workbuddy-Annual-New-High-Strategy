@@ -1,0 +1,25 @@
+{
+  "poll_interval": 30,
+  "rules_dir": "rules",
+  "state_file": "state.json",
+  "alert_log": "alerts.jsonl",
+  "source": {
+    "factory": "reminder.sources:TencentSource",
+    "args": {}
+  },
+  "channels": {
+    "console": {
+      "factory": "reminder.channels:ConsoleChannel",
+      "args": {}
+    },
+    "toast": {
+      "factory": "reminder.channels:WindowsToastChannel",
+      "args": {"duration_seconds": 6}
+    }
+  },
+  "severity_routes": {
+    "info": ["console"],
+    "warn": ["console", "toast"],
+    "critical": ["console", "toast"]
+  }
+}

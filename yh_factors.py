@@ -75,18 +75,50 @@ def features_at(bars: Sequence[dict], p: Dict, idx: Optional[int] = None) -> Dic
     turn = np.array([b.get("turnover", 0.0) for b in sub], dtype=float)
 
     last = c[idx]
-    hi250 = float(c[idx - hd + 1: idx + 1].max())
+    win250 = c[idx - hd + 1: idx + 1]
+    hi250 = float(win250.max())
     hi30 = float(c[idx - bd + 1: idx + 1].max())
     lo30 = float(c[idx - bd + 1: idx + 1].min())
+    hi20 = float(c[idx - 20 + 1: idx + 1].max())
+    lo20 = float(c[idx - 20 + 1: idx + 1].min())
     hi10 = float(c[idx - td + 1: idx + 1].max())
     lo10 = float(c[idx - td + 1: idx + 1].min())
 
     width30 = hi30 / lo30 - 1.0 if lo30 > 0 else np.nan
+    width20 = hi20 / lo20 - 1.0 if lo20 > 0 else np.nan
     width10 = hi10 / lo10 - 1.0 if lo10 > 0 else np.nan
     prox = hi30 / hi250 if hi250 > 0 else np.nan          # 原版条件2：30日高 / 一年高
     dd_from_high = last / hi250 - 1.0                      # 当前价距一年最高收盘的回撤
     pos_in_box = (last - lo30) / (hi30 - lo30) if hi30 > lo30 else 1.0
     contraction = width10 / width30 if width30 and width30 > 0 else np.nan
+
+    # --- 250日最高收盘「新鲜度」（2026-11-12 v2.3 新增）---
+    # hi250_ago = 从最新一根往回数、【最近一次】达到 250 日最高收盘的根数（1 = 今日创年高）。
+    # 用途：区分「刚创新高的有效平台」与「回到半年前同一价位的双顶/下跌中继」——
+    #   南方传媒/双环传动/九州通 的 250 日最高点分别在 199/194/191 日前，
+    #   价格虽回到高位区，但那是半年多前的旧高点，不是新鲜突破。
+    # 实现：反向取 argmax，等价于取「最后一次出现最大值」的位置。
+    _rev = win250[::-1]
+    hi250_ago = int(np.argmax(_rev)) + 1
+
+    # --- 横盘持续天数 base_days（2026-11-12 v2.6 新增）---
+    # base_days = 最大的 k（5~60），使过去 k 日收盘区间宽度 (max/min-1) <= 20%。
+    # 用途：width10/20/30 只度量「最近 k 天有多窄」，不度量「已经窄了多久」。
+    #   实测 24.7 万事件分箱：fwd60 在 30~39 天见顶 +2.77%，60+ 回落到 +2.41%；
+    #   横盘 <10 天 ab −4.78%、大亏率 30.1%（垃圾区）。
+    # 用法：只加上限 base_days <= 35，剔掉「横 60 天以上还趴着」的低波动红利股
+    #   （长电/核电/唐山港/华电/国电/美的/九州通 一类），不设下限 ——
+    #   下限已被 VCP（w10<=10% & w30<=50%）隐含满足，且设 20 会误杀德尔
+    #   （德尔平台期 base_days 峰值仅 19，因 20 日窗口够到 09-18 的修复段）。
+    base_days = 0
+    for _k in range(5, 61):
+        if _k > idx + 1:
+            break
+        _seg = c[idx - _k + 1: idx + 1]
+        if _seg.max() / _seg.min() - 1.0 <= 0.20:
+            base_days = _k
+        else:
+            break
 
     atr_pct = float(true_range_atr(sub, 14)[idx] / last) if last > 0 else np.nan
 
@@ -108,6 +140,7 @@ def features_at(bars: Sequence[dict], p: Dict, idx: Optional[int] = None) -> Dic
     money_tilt = up / dn if dn > 0 else np.nan
 
     # --- 趋势质量 ---
+    ret10 = last / c[idx - 10] - 1.0
     ret20 = last / c[idx - 20] - 1.0
     ret60 = last / c[idx - 60] - 1.0
     ret120 = last / c[idx - 120] - 1.0
@@ -142,13 +175,16 @@ def features_at(bars: Sequence[dict], p: Dict, idx: Optional[int] = None) -> Dic
         "date": bars[idx]["date"],
         "close": float(last),
         "hi250": hi250, "hi30": hi30, "lo30": lo30,
-        "width30": float(width30), "width10": float(width10),
+        "hi10": hi10, "lo10": lo10, "hi20": hi20, "lo20": lo20,
+        "hi250_ago": hi250_ago,
+        "base_days": int(base_days),
+        "width30": float(width30), "width20": float(width20), "width10": float(width10),
         "prox": float(prox), "dd_from_high": float(dd_from_high),
         "pos_in_box": float(pos_in_box), "contraction": float(contraction),
         "width_pct": width_pct, "atr_pct": atr_pct,
         "amt30": amt30, "amt10": amt10, "turn30": turn30, "vr20": float(vr20),
         "vol_dry": float(vol_dry), "money_tilt": float(money_tilt),
-        "ret20": float(ret20), "ret60": float(ret60),
+        "ret10": float(ret10), "ret20": float(ret20), "ret60": float(ret60),
         "ret120": float(ret120), "ret250": float(ret250),
         "trend_stack": trend_stack,
         "new_high_days": new_high_days,

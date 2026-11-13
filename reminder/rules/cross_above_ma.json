@@ -1,0 +1,17 @@
+{
+  "id": "cross_above_ma",
+  "name": "上穿均线",
+  "enabled": false,
+  "type": "price",
+  "scope": "symbols",
+  "symbols": ["600519"],
+  "conditions": [
+    {"field": "close", "op": "cross_above", "ref": "kline.ma20"}
+  ],
+  "logic": "and",
+  "cooldown_seconds": 3600,
+  "severity": "info",
+  "channels": [],
+  "message": "{symbol} {name} 上穿 MA20（现价 {close}，MA20 {kline.ma20}）",
+  "note": "示例：数据源若返回嵌套字段 kline={ma20: ...}，这里用点号访问；cross 需要至少两轮数据"
+}

@@ -1,0 +1,17 @@
+{
+  "id": "limit_up_watch",
+  "name": "涨停提醒",
+  "enabled": false,
+  "type": "price",
+  "scope": "symbols",
+  "symbols": ["600519", "000001"],
+  "conditions": [
+    {"field": "close", "op": ">=", "ref": "limit_up"}
+  ],
+  "logic": "and",
+  "cooldown_seconds": 600,
+  "severity": "warn",
+  "channels": [],
+  "message": "{symbol} {name} 涨停（现价 {close}，涨停价 {limit_up}）",
+  "note": "示例：字段 limit_up 需要数据源提供；没有这个字段就永远不触发"
+}
