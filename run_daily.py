@@ -120,6 +120,22 @@ def main() -> None:
     import daily_rank_v3  # noqa: E402
     daily_rank_v3.main()
 
+    # v3.1 候选（平行纸上跟踪，不进生产；失败不影响 v3）
+    try:
+        print()
+        import daily_rank_v31  # noqa: E402
+        daily_rank_v31.main()
+    except Exception as e:  # noqa: BLE001
+        print(f"[v3.1候选] 运行失败（不影响 v3）：{type(e).__name__}: {e}")
+
+    # 记录两版名单到跟踪表（20 日结果留待日后回填）
+    try:
+        import paper_track  # noqa: E402
+        paper_track.update()
+        paper_track.summary()
+    except Exception as e:  # noqa: BLE001
+        print(f"[paper-track] 更新失败（不影响选股）：{type(e).__name__}: {e}")
+
 
 if __name__ == "__main__":
     main()
