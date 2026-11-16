@@ -32,8 +32,15 @@ import pandas as pd
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CACHE = os.environ.get("YW_CACHE") or os.path.join(BASE, "cache", "kline_320.pkl")
-BOARD = os.environ.get("YW_BOARD") or os.path.join(BASE, "output", "v2", "全市场打分明细_v2.csv")
-if not os.path.exists(BOARD):
+BOARD = os.environ.get("YW_BOARD")
+if not BOARD:
+    for _cand in (os.path.join(BASE, "output", "v2", "全市场打分明细_v2.csv"),
+                  os.path.join(BASE, "cache", "board_map.csv"),
+                  os.path.join(BASE, "v3", "data", "board_map.csv")):
+        if os.path.exists(_cand):
+            BOARD = _cand
+            break
+if not BOARD:
     BOARD = os.path.join(BASE, "v3", "data", "board_map.csv")
 ID = os.environ.get("YW_ID") or os.path.join(BASE, "v3", "data", "deliver_identity_table.csv")
 OUTDIR = os.environ.get("YW_V3_OUT") or os.path.join(BASE, "output", "v3")
@@ -85,14 +92,13 @@ def main() -> None:
     idn = pd.read_csv(ID, dtype={"code": str}).set_index("code")
     name = np.array([idn.loc[x, "name"] if x in idn.index else "" for x in codes])
     st = np.array([("ST" in str(n)) or ("退" in str(n)) for n in name])
-    bm = pd.read_csv(BOARD, dtype={"code": str},
-                     usecols=["code", "board"] if "打分明细" in os.path.basename(BOARD) else ["code", "board"]
-                     ).drop_duplicates("code").set_index("code")["board"]
+    bm = pd.read_csv(BOARD, dtype={"code": str}, usecols=["code", "board"])         .drop_duplicates("code").set_index("code")["board"]
     board = bm.reindex(codes).values
     bad = np.array([(isinstance(b, str) and b in BLACK) for b in board])
     clean = ~st & ~bad
 
-    i = nd - 1
+    asof_offset = int(os.environ.get("YH_ASOF", "0"))   # 0=最新bar（收盘后）；1=倒数第2根（盘中安全）
+    i = nd - 1 - asof_offset
     c = px.values[i]
     today_amt = am.values[i] / 1e8
     liq = (today_amt >= 2.0) & ~np.isnan(c) & clean
