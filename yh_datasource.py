@@ -175,7 +175,18 @@ def fetch_klines(codes: Sequence[str], days: int = 320, workers: int = 24,
         except Exception:
             cached = {}
 
-    todo = [c for c in codes if c not in cached]
+    # 先探测数据源最新交易日：缓存里旧于它的代码都需要增量刷新
+    probe_codes = [c for c in ("600030", "000001", "600519") if c]
+    latest_src = None
+    for pc in probe_codes:
+        b = fetch_kline(pc, days=5)
+        if b:
+            latest_src = max(latest_src or "", b[-1]["date"])
+    if latest_src:
+        todo = [c for c in codes
+                if c not in cached or not cached[c] or cached[c][-1].get("date", "") < latest_src]
+    else:
+        todo = [c for c in codes if c not in cached]
     if todo:
         done = 0
         with ThreadPoolExecutor(max_workers=workers) as ex:
