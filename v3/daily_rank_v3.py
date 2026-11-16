@@ -34,8 +34,8 @@ BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CACHE = os.environ.get("YW_CACHE") or os.path.join(BASE, "cache", "kline_320.pkl")
 BOARD = os.environ.get("YW_BOARD")
 if not BOARD:
-    for _cand in (os.path.join(BASE, "output", "v2", "全市场打分明细_v2.csv"),
-                  os.path.join(BASE, "cache", "board_map.csv"),
+    for _cand in (os.path.join(BASE, "cache", "board_map.csv"),
+                  os.path.join(BASE, "output", "v2", "全市场打分明细_v2.csv"),
                   os.path.join(BASE, "v3", "data", "board_map.csv")):
         if os.path.exists(_cand):
             BOARD = _cand
@@ -101,7 +101,9 @@ def main() -> None:
     i = nd - 1 - asof_offset
     c = px.values[i]
     today_amt = am.values[i] / 1e8
-    liq = (today_amt >= 2.0) & ~np.isnan(c) & clean
+    today_chg = c / px.values[i - 1] - 1
+    not_limit_up = today_chg < 0.098        # 当日涨幅 >=9.8% 视为涨停/接近涨停，买不进
+    liq = (today_amt >= 2.0) & ~np.isnan(c) & clean & not_limit_up
     base = (liq
             & (volratio[i] <= P_VOL_RATIO) & (vol20[i] <= P_VOL_CAP)
             & (prox[i] >= P_PROX)
