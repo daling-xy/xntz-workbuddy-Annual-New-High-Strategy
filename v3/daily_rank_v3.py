@@ -3,7 +3,7 @@
 ================================================================
 设计（2026-11-13 定版）：
   宇宙：当日成交额>=2亿 & 非涨停 & 非ST/退 & 非9类行业黑名单
-        & vol20 <= 1.0 x 自身过去一年 vol20 均值（不允许波动率相对放大）
+        & vol20 <= 1.2 x 自身过去一年 vol20 均值（按两位小数比较，含四舍五入；2026-11-17 由 1.0 调整，政策选择）
         & vol20 <= 35%（绝对保险丝）
   条件：prox >= 0.90 & ret10 <= 8% & turn30 <= 5% & ret60 >= 0
   排序：prox（双向样本外唯一通过的排序特征）
@@ -49,7 +49,7 @@ BLACK = {"银行Ⅱ", "基础建设", "房屋建设Ⅱ", "专业工程", "工程
          "铁路公路", "物流", "航空机场", "通信服务"}
 
 # 参数（2026-11-13 定版，详见 v3/README_v3.md）
-P_VOL_RATIO = 1.0      # vol20 / 自身一年均值 上限
+P_VOL_RATIO = 1.2      # vol20 / 自身一年均值 上限（按两位小数比较，即四舍五入后 ≤1.2）
 P_VOL_CAP = 0.35       # vol20 绝对上限
 P_PROX = 0.90          # 距年高下限
 P_RET10 = 0.08         # 近10日涨幅上限
@@ -105,7 +105,7 @@ def main() -> None:
     not_limit_up = today_chg < 0.098        # 当日涨幅 >=9.8% 视为涨停/接近涨停，买不进
     liq = (today_amt >= 2.0) & ~np.isnan(c) & clean & not_limit_up
     base = (liq
-            & (volratio[i] <= P_VOL_RATIO) & (vol20[i] <= P_VOL_CAP)
+            & (np.round(volratio[i], 2) <= P_VOL_RATIO) & (vol20[i] <= P_VOL_CAP)
             & (prox[i] >= P_PROX)
             & (ret10[i] <= P_RET10) & (turn30[i] <= P_TURN30) & (ret60[i] >= P_RET60))
     idx = np.where(base)[0]

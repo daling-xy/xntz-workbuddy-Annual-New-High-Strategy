@@ -13,13 +13,15 @@ v3.1 候选（R1T2）在双向样本外里两个方向都是正的（+0.31pp / +
 | 短期涨幅 | `ret10 <= 8%` | `z10 = ret10/(日波动率×√10) <= 2.0` |
 | 中期趋势 | `ret60 >= 0` | `close > MA60 且 MA5 > MA20` |
 
-宇宙、清洗、波动率门（volratio≤1.0 且 vol20≤35%）、prox≥0.90、turn30≤5%、排序与分档全部相同。
+宇宙、清洗、波动率门（volratio≤1.2（两位小数）且 vol20≤35%）、prox≥0.90、turn30≤5%、排序与分档全部相同。
 
 ## 每日流程（一条命令，两版同时出）
 
 ```powershell
 python run_daily.py --fresh --asof 0
 ```
+
+> 2026-11-17：v3 的 volratio 上限已从 1.0 调整为 1.2（两位小数），v3.1 底座同步；跟踪基线按新规则重算（11-13、11-16 两天）。
 
 - v3 生产名单 → `output/v3/daily_rank_v3_YYYYMMDD.csv`
 - v3.1 候选名单 → `output/v31/daily_rank_v31_YYYYMMDD.csv`
