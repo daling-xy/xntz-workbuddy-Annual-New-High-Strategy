@@ -26,7 +26,7 @@ def analyze(h,l,c,code):
     if tot<-0.06 or tot>0.35: return "reject","30日涨跌幅",None
     ch10=c[-1]/c[-10]-1
     if ch10<-0.07: return "reject","近10日跌幅",None
-    ch5=c[-1]/c[-6]-1
+    ch5=c[-1]/c[-5]-1   # 引擎用 closes[-RECENT_DAYS]=closes[-5]
     if ch5<-0.12: return "reject","近5日跌幅",None
     close_hi10=max(h[-10:]); dev=(close_hi10-c[-1])/close_hi10 if close_hi10>0 else 0
     if dev>0.13: return "reject","离10日高价",None
@@ -61,7 +61,10 @@ def analyze(h,l,c,code):
         else: left=abs(l[idx]-l[idx-2])/2; right=abs(l[idx+2]-l[idx])/2
         return (abs(left-right)/c[idx] if c[idx]>0 else 0)>5.0
     vp=[i for i in pk if not rej(int(i),True)]; vt=[i for i in tr if not rej(int(i),False)]
-    if len(vp)<2 or len(vt)<2: return "Q","无转折(Q)",None
+    if len(vp)<2 or len(vt)<2:
+        if len(pk)>=2 and len(tr)>=2:
+            return "reject","极端形态",None   # 原始有转折但被极端/尖锐度剔光 → 引擎判极端形态拒绝
+        return "Q","无转折(Q)",None
     pts=[(int(i),"peak",float(h[i])) for i in vp]+[(int(i),"trough",float(l[i])) for i in vt]
     pts.sort(); seq=[]; last=None
     for p in pts:
@@ -115,7 +118,7 @@ for _,r in cal.iterrows():
     h=P["H"][lo:t+1,j]; l=P["L"][lo:t+1,j]; c=P["C"][lo:t+1,j]
     if len(c)<25: continue
     st,why,info=analyze(h,l,c,r["code"])
-    row=dict(code=r["code"], ret=r["ret_min"], half=r["half_min"], status=st, why=why)
+    row=dict(code=r["code"], ed=key[1], ret=r["ret_min"], half=r["half_min"], status=st, why=why)
     if info: row.update(info)
     rows.append(row)
 d=pd.DataFrame(rows)
@@ -133,7 +136,7 @@ stat("基准(全部v3)", True)
 stat("A级形态(通过全部形态闸)", d.status=="A")
 stat("Q级(无转折/转折不足放行)", d.status=="Q")
 stat("A+Q(便携版形态层通过)", d.status.isin(["A","Q"]))
-stat("有效中枢(30bar口径,全部)", d.overlap==True)
+stat("A级中有效中枢(30bar)", d.overlap==True)
 stat("中枢偏离内(全部)", (d.dev_zg.notna())&(d.dev_zg<=0.08)&(d.dev_zd.notna())&(d.dev_zd>=-0.08))
 stat("A & 有效中枢", (d.status=="A")&(d.overlap==True))
 stat("A & 偏离内", (d.status=="A")&(d.dev_zg.notna())&(d.dev_zg<=0.08)&(d.dev_zd.notna())&(d.dev_zd>=-0.08))
