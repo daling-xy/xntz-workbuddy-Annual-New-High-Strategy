@@ -190,14 +190,20 @@ def sim_daily(P, tr):
 def main():
     ap=argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=120)
+    ap.add_argument("--all", action="store_true", help="全量：所有 v3 交易（不分年份/不抽样）")
     ap.add_argument("--seed", type=int, default=7)
     args=ap.parse_args()
     t0=time.time()
     P=build(); trades=make_trades(P); print(f"v3 trades: {len(trades)}",flush=True)
     # 取 2021 年以后、有 5min 符号的样本
-    tr=[x for x in trades if P["dates"][x["ed"]]>="2021-01-01" and bs_sym(x["code"])]
-    random.seed(args.seed); random.shuffle(tr); sample=tr[:args.n]
-    print(f"sample: {len(sample)} 笔（2021 年后）",flush=True)
+    tr=[x for x in trades if bs_sym(x["code"])]
+    if args.all:
+        sample=tr
+        print(f"FULL: {len(sample)} 笔（全部 v3 交易）",flush=True)
+    else:
+        tr=[x for x in tr if P["dates"][x["ed"]]>="2021-01-01"]
+        random.seed(args.seed); random.shuffle(tr); sample=tr[:args.n]
+        print(f"sample: {len(sample)} 笔（2021 年后）",flush=True)
     import baostock as bs
     lg=bs.login()
     out=[]
@@ -223,8 +229,9 @@ def main():
         print(f"日线口径（同批）：平均 {r.ret_daily.mean()*100:.2f}% 中位 {r.ret_daily.median()*100:.2f}% 胜率 {(r.ret_daily>0).mean()*100:.1f}% 半仓 {(r.half_daily).mean()*100:.1f}%")
         print(f"入场价差（5min/日线-1）：平均 {r.entry_diff.mean():.2f}% 中位 {r.entry_diff.median():.2f}%")
         print(f"收益差（5min-日线）：平均 {r.ret_diff.mean():.2f}pp 中位 {r.ret_diff.median():.2f}pp")
-    r.to_csv(os.path.join(LEARN,"analysis","min5_calib_trades.csv"),index=False,encoding="utf-8-sig")
-    print("输出：analysis/min5_calib_trades.csv")
+    fn = "min5_calib_trades_all.csv" if args.all else "min5_calib_trades.csv"
+    r.to_csv(os.path.join(LEARN,"analysis",fn),index=False,encoding="utf-8-sig")
+    print(f"输出：analysis/{fn}")
 
 if __name__=="__main__":
     main()
