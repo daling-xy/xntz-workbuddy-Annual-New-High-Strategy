@@ -209,7 +209,7 @@ def main():
     out=[]
     for k,x in enumerate(sample):
         j=x["j"]; ed=x["ed"]; top=x["top"]
-        d0=P["dates"][ed-1]; d1=min(P["dates"][ed+80], P["dates"][P["nd"]-1])
+        d0=P["dates"][ed-1]; d1=P["dates"][min(ed+80, P["nd"]-1)]
         df=get5(x["code"], d0, d1)
         if df is None or len(df)==0: continue
         qfq_prev=float(P["C"][ed-1,j])
