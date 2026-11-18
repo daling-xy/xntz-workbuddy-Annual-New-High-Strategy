@@ -6,6 +6,7 @@
   买入即移出票池；卖出后若当日收盘仍满足选股条件 → 重新进池；
   出池（仅两条）：① 收盘 > 首次触发价×1.20；② 收盘 < 最近30日最高收盘×0.80。
   买卖执行：5min（107–115% 触发、14:30 止损、②a/②b 半仓、③a/③b 顶部确认），用 sim_minute 离线模拟整笔并排期。
+  --daily：用日线近似（仅用于快速对照，不作最终结论）。
   资金：10 个等权仓位；size=min(cash, 昨收权益/10)；不计成本。
 """
 import argparse, os, sys, time
@@ -23,7 +24,7 @@ def build_data(P):
     base=P["valid"]&P["clean"]&(P["A"]>=2e8)&(P["vr"]<=1.0)&(P["vol20"]<=0.35)&(P["prox"]>=0.90)&(P["ret10"]<=0.08)&(P["turn30"]<=5)&(P["ret60"]>=0)&((C/np.roll(C,1,axis=0)-1)*100<9.8)
     return dict(top_prev=top_prev, top30_exit=top30_exit, prox_prev=prox_prev, mask=base)
 
-def simulate(P, dd, start="2021-01-04", end=None, verbose=True):
+def simulate(P, dd, start="2021-01-04", end=None, verbose=True, daily=False):
     dates=np.array(P["dates"]); nd=P["nd"]; O=P["O"]; H=P["H"]; L=P["L"]; C=P["C"]; codes=P["codes"]
     s=int(np.searchsorted(dates,start)); e=nd if end is None else int(np.searchsorted(dates,end))
     idx={d:i for i,d in enumerate(dates)}
@@ -35,7 +36,7 @@ def simulate(P, dd, start="2021-01-04", end=None, verbose=True):
                 cash+=p["shares"]*0.5*p["half_px"]; p["shares"]*=0.5; p["half_done"]=True
             if p["exit_day"]==d:
                 cash+=p["shares"]*p["exit_px"]; holds.append(d-p["entry_day"]); del pos[code]; sells+=1
-        # 3) 买点监控（盘中，日线区间近似判定是否触达；实际成交用 5min）
+        # 2) 买点监控（盘中，日线区间近似判定是否触达；实际成交用 5min）
         trigs=[]
         for code,p in pool.items():
             j=p["j"]
@@ -51,8 +52,22 @@ def simulate(P, dd, start="2021-01-04", end=None, verbose=True):
         for rank,code,j,tp in trigs:
             if free<=0: break
             if cash<=1e-12: break
+            equity_prev=cash+sum(pp["shares"]*C[d-1,pp["j"]] for pp in pos.values() if np.isfinite(C[d-1,pp["j"]]))
+            size=min(cash, equity_prev/10)
+            if size<=1e-9: break
+            if daily:
+                trig=1.07*float(tp); cap=1.15*float(tp)
+                if not np.isfinite(H[d,j]) or not np.isfinite(O[d,j]): continue
+                entry=(max(float(O[d,j]),trig) if O[d,j]<=cap else cap)
+                rd=M.sim_daily(P, dict(j=j, ed=d, entry=entry))
+                if rd is None: continue
+                pos[code]=dict(j=j,entry_day=d,shares=size/entry,entry_px=entry,half_day=None,half_px=None,half_done=False,
+                               exit_day=idx[rd["xday"]],exit_px=entry*(1+rd["ret"]))
+                cash-=size; free-=1; buys+=1; buy_log.append((dates[d],code,entry,size)); del pool[code]
+                continue
             # 5min 模拟整笔交易
             sd=dates[d-1]; ed=dates[min(d+120, nd-1)]
+            res=None
             for attempt in range(4):
                 df=M.get5(code, sd, ed)
                 if df is None or len(df)==0: break
@@ -63,17 +78,12 @@ def simulate(P, dd, start="2021-01-04", end=None, verbose=True):
                     ed=dates[min(idx[last]+121, nd-1)]; continue
                 break
             if res is None: continue
-            equity_prev=cash+sum(pp["shares"]*C[d-1,pp["j"]] for pp in pos.values() if np.isfinite(C[d-1,pp["j"]]))
-            size=min(cash, equity_prev/10)
-            if size<=1e-9: break
             sh=size/res["entry_qfq"]
             pos[code]=dict(j=j,entry_day=d,shares=sh,entry_px=res["entry_qfq"],
                            half_day=(idx[res["half_day"]] if res["half_day"] else None),half_px=res["half_px_qfq"],half_done=False,
                            exit_day=idx[res["xday"]],exit_px=res["exit_qfq"])
-            cash-=size; free-=1; buys+=1; buy_log.append((dates[d],code,res["entry_qfq"],size))
-            del pool[code]
-        # 3.5) 出池（收盘后，两条；在买入之后用当日收盘判断，避免盘中前视）
-        # 出池（收盘口径）
+            cash-=size; free-=1; buys+=1; buy_log.append((dates[d],code,res["entry_qfq"],size)); del pool[code]
+        # 3.5) 出池（收盘后，两条；买入之后用当日收盘判断，避免盘中前视）
         for code,p in list(pool.items()):
             j=p["j"]; c=C[d,j]
             if not np.isfinite(c): continue
@@ -104,10 +114,15 @@ def simulate(P, dd, start="2021-01-04", end=None, verbose=True):
 
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument("--start",default="2021-01-04"); ap.add_argument("--end",default=None)
+    ap.add_argument("--daily",action="store_true")
     a=ap.parse_args(); t0=time.time(); P=M.build(); dd=build_data(P)
-    import baostock as bs; bs.login()
-    r=simulate(P,dd,a.start,a.end)
-    r["eq"].to_csv(r"D:\about\learn\analysis\pool_equity.csv",encoding="utf-8-sig")
-    bs.logout(); print(f"[{time.time()-t0:.0f}s]")
+    import baostock as bs
+    if not a.daily: bs.login()
+    try:
+        r=simulate(P,dd,a.start,a.end,daily=a.daily)
+        r["eq"].to_csv(r"D:\about\learn\analysis\pool_equity.csv",encoding="utf-8-sig")
+    finally:
+        if not a.daily: bs.logout()
+    print(f"[{time.time()-t0:.0f}s]")
 
 if __name__=="__main__": main()
