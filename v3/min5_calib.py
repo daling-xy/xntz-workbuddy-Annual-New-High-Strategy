@@ -126,6 +126,7 @@ def sim_minute(P, tr, df, qfq_close_prevd, verbose=False):
         if entry is not None: break
     if entry is None: return None
     half=None; half_done=False; xr=None; xp=None; xday=None
+    half_day=None; half_px=None
     # 逐日重放
     for d in [x for x in days if x>=eday]:
         b=df[df.date==d].sort_values("hhmm")
@@ -140,7 +141,7 @@ def sim_minute(P, tr, df, qfq_close_prevd, verbose=False):
             if d==eday and r["hhmm"]<=int(df.loc[ebar,"hhmm"]): continue
             prof=float(r["close"])/entry-1
             if prof>0.30 and float(r["close"])/prevc-1>=0.09:
-                if not half_done: half=float(r["close"]); half_done=True
+                if not half_done: half=float(r["close"]); half_px=half; half_day=d; half_done=True
                 else: xp=float(r["close"]); xday=d; break
         if xp is not None: break
         # ③a：10:30 前量>=前日 70%，且跌幅>7%
@@ -169,13 +170,15 @@ def sim_minute(P, tr, df, qfq_close_prevd, verbose=False):
                 if len(prev_rows2):
                     pd_day=prev_rows2.iloc[-1]["date"]; pdp=float(prev_rows2[prev_rows2.date==pd_day].iloc[-1]["close"])
                     if pdp/prevc-1<=0.03:
-                        if not half_done: half=px1445; half_done=True
+                        if not half_done: half=px1445; half_px=half; half_day=d; half_done=True
                         else: xp=px1445; xday=d; break
     if xp is None:
         last=df[df.date>=eday].iloc[-1]
         xp=float(last["close"]); xday=str(last["date"])
     r=(0.5*half+0.5*xp)/entry-1 if half is not None else xp/entry-1
-    return dict(ret=float(r), entry=float(entry), entry_qfq=float(entry/factor), xp=float(xp), xday=xday, half=half is not None)
+    return dict(ret=float(r), entry=float(entry), entry_qfq=float(entry/factor), xp=float(xp), xday=xday,
+                half=half is not None, half_day=half_day, half_px_qfq=(float(half_px/factor) if half_px else None),
+                exit_qfq=float(xp/factor), factor=float(factor))
 
 def sim_daily(P, tr):
     """日线近似：同一套规则（用于对比）"""
