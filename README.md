@@ -34,7 +34,7 @@ python run_daily.py --asof 0
 1. **宇宙**：当日成交额 ≥2 亿；vol20（20 日年化波动率）≤1.0×自身过去一年均值 且 ≤35%；非涨停、非 ST/退、非 9 类行业黑名单
 2. **条件**：prox（距 250 日最高收盘）≥0.90；ret10 ≤8%；turn30 ≤5%；ret60 ≥0
 3. **排序**：prox；分档 A ≥0.98 / B ≥0.95 / C ≥0.90（不设名额）
-4. **每日输出**：`tier / prox / code / name / board / industry / anchor / close / chg / vol20 / volratio / ret10 / ret60 / turn30 / amt_yi`
+4. **每日输出（交易卡）**：`tier / prox / code / name / close / box_top / buy_lo(×1.07) / buy_hi(×1.15) / dist_trigger / stop_px / box_w30 / status / volratio / ret10 / ret60 / turn30 / amt_yi / industry`
 
 完整定义、阈值来源、双向样本外结果见 **[v3/README_v3.md](v3/README_v3.md)**。
 

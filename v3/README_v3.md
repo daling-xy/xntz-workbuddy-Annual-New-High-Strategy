@@ -95,7 +95,7 @@ python v3/daily_rank_v3.py
 # 输出：output/v3/daily_rank_v3_YYYYMMDD.csv
 ```
 
-输出字段：date / tier / prox / code / name / board / industry / anchor / close / chg / vol20 / volratio / ret10 / ret60 / turn30 / amt_yi
+输出字段（交易卡）：date / tier / prox / code / name / board / industry / anchor / close / chg / box_top(箱顶) / buy_lo(箱顶×1.07) / buy_hi(×1.15) / dist_trigger(距触发%) / stop_px(触发价×0.87) / box_w30(箱宽%) / status / vol20 / volratio / ret10 / ret60 / turn30 / amt_yi
 
 ## 6. 已知局限
 

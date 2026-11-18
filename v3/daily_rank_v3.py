@@ -88,6 +88,9 @@ def main() -> None:
     ret10 = (px / px.shift(10) - 1).values
     ret60 = (px / px.shift(60) - 1).values
     turn30 = tn.rolling(30).mean().values
+    hi30 = px.rolling(30).max().values          # 30日最高收盘 = 箱顶
+    lo30 = px.rolling(30).min().values
+    w30 = hi30 / np.where(lo30 > 0, lo30, np.nan) - 1
 
     idn = pd.read_csv(ID, dtype={"code": str}).set_index("code")
     name = np.array([idn.loc[x, "name"] if x in idn.index else "" for x in codes])
@@ -130,6 +133,13 @@ def main() -> None:
             ret60=round(float(ret60[i, j]) * 100, 1),
             turn30=round(float(turn30[i, j]), 2),
             amt_yi=round(float(today_amt[j]), 2),
+            box_top=round(float(hi30[i, j]), 2),
+            buy_lo=round(float(hi30[i, j]) * 1.07, 2),
+            buy_hi=round(float(hi30[i, j]) * 1.15, 2),
+            dist_trigger=round(float(hi30[i, j] * 1.07 / c[j] - 1) * 100, 1),
+            stop_px=round(float(hi30[i, j] * 1.07) * 0.87, 2),
+            box_w30=round(float(w30[i, j]) * 100, 1),
+            status=("等触发" if c[j] < hi30[i, j] * 1.07 else ("买入区间内" if c[j] <= hi30[i, j] * 1.15 else "已过区间")),
         ))
     R = pd.DataFrame(rows).sort_values("prox", ascending=False)
     out = os.path.join(OUTDIR, f"daily_rank_v3_{dates[i].strftime('%Y%m%d')}.csv")
@@ -138,8 +148,8 @@ def main() -> None:
     print(f"asof {dates[i].date()} | 清洗排除 ST/退 {int(st.sum())}、黑名单 {int(bad.sum())}")
     print(f"v3 候选 {len(R)} 只 | A {(R.tier == 'A').sum()} B {(R.tier == 'B').sum()} C {(R.tier == 'C').sum()}")
     if len(R):
-        print(R[["tier", "prox", "code", "name", "close", "chg", "vol20", "volratio",
-                 "ret10", "ret60", "turn30", "amt_yi", "industry"]].to_string(index=False))
+        print(R[["tier", "prox", "code", "name", "close", "buy_lo", "dist_trigger", "stop_px",
+                 "box_w30", "status", "volratio", "ret10", "ret60", "turn30", "amt_yi", "industry"]].to_string(index=False))
     print(f"\n输出：{out}  [{time.time() - t0:.0f}s]")
 
 

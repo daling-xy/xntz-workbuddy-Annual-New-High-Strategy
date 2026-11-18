@@ -61,22 +61,26 @@ def run(mask,lab):
             if H[d,j]>=trigp and O[d,j]<=cap:
                 entry=max(O[d,j],trigp); ed=d; break
         if entry is None: continue
-        trig+=1; stop=entry*0.87; half=None; xp=None; xd=None; d=ed+1
+        trig+=1; stop=entry*0.87; half=None; half_done=False; xp=None; xd=None; d=ed+1
         while d<nd:
             if not np.isfinite(C[d,j]): d+=1; continue
             pc=ret[d,j]; pv=V[d,j]; pvv=prevV[d,j]; prof=C[d,j]/entry-1
             if np.isfinite(L[d,j]) and L[d,j]<=stop: xp=stop; xd=d; break
             if np.isfinite(pc) and pc<-0.07 and np.isfinite(pv) and np.isfinite(pvv) and pvv>0 and pv>=pvv*0.7: xp=C[d,j]; xd=d; break
-            if half is None and prof>0.30:
-                if np.isfinite(pc) and pc>=0.09: half=C[d,j]
-                elif d-1>=ed+1 and np.isfinite(ret[d-1,j]) and ret[d-1,j]<=0.03 and pc<=0.03: half=C[d,j]
+            if prof>0.30:
+                sell_half = (np.isfinite(pc) and pc>=0.09) or (d-1>=ed+1 and np.isfinite(ret[d-1,j]) and ret[d-1,j]<=0.03 and np.isfinite(pc) and pc<=0.03)
+                if sell_half:
+                    if not half_done:
+                        half=C[d,j]; half_done=True
+                    else:
+                        xp=C[d,j]; xd=d; break
             d+=1
         if xp is None: xd=nd-1; xp=C[xd,j]
         r=(0.5*half+0.5*xp)/entry-1 if half is not None else xp/entry-1
         mret=mktcum[xd]/mktcum[ed]-1; trs.append((r,mret)); hds.append(xd-ed)
     arr=np.array(trs); 
     print(f"\n--- {lab} ---")
-    print(f"  候选 {n}（日均 {n/days:.1f}）| 可交易(箱顶×0.8~1.07) {int(trad.sum())} ({trad.mean()*100:.1f}%) | 已过触发线 {int(past.sum())} ({past.mean()*100:.1f}%) | 破箱底 {int(below.sum())} ({below.mean()*100:.1f}%)")
+    print(f"  候选 {n}（日均 {n/days:.1f}）")
     print(f"  触发 {trig} 笔（可交易中 {trig/max(int(trad.sum()),1)*100:.1f}%）")
     if len(arr):
         r=arr[:,0]; mret=arr[:,1]; exc=(1+r)/(1+mret)-1
