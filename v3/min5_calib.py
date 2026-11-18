@@ -50,10 +50,19 @@ def build():
         vol20=vol20,vr=vr,prox=prox,hi30=hi30,ret10=ret10,ret30=ret30,ret60=ret60,turn30=turn30,
         name=name,clean=clean,valid=valid)
 
-def make_trades(P):
+def make_trades(P, variant="V1"):
     C=P["C"]; nd=P["nd"]; nc=P["nc"]; i0=int(np.searchsorted(np.array(P["dates"]),"2019-01-01"))
     base=P["valid"]&P["clean"]&(P["A"]>=2e8)&(P["prox"]>=0.90)&(P["ret10"]<=0.08)&(P["turn30"]<=5)
-    base&= (P["vr"]<=1.0)&(P["vol20"]<=0.35)&(P["ret60"]>=0)
+    if variant=="V1":
+        base&= (P["vr"]<=1.0)&(P["vol20"]<=0.35)&(P["ret60"]>=0)
+    elif variant=="V2":
+        base&= (np.round(P["vr"],2)<=1.2)&(P["vol20"]<=0.35)&(P["ret60"]>=0)
+    elif variant=="V3":
+        base&= (P["vr"]<=1.0)&(P["vol20"]<=0.35)&(P["ret30"]>=0)
+    elif variant=="V4":
+        base&= (P["ret60"]>=0)
+    else:
+        raise ValueError(variant)
     base[:i0,:]=False
     H=P["H"]; L=P["L"]; V=P["V"]; hi30=P["hi30"]
     ii,jj=np.where(base); trades=[]
