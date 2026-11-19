@@ -15,6 +15,7 @@ BASE=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(BASE,"v3"))
 import min5_calib as M
 from sim_fast import sim_minute_fast
+from chan_state import chan_state
 
 RANK_MODE="prox"      # prox / lowprox / random
 TRIG_MODE="rolling"   # rolling / entry_fixed / first_fixed
@@ -30,13 +31,28 @@ def build_data(P):
     top30_exit=dfC.rolling(30).max().values
     prox_prev=(dfC.shift(1)/dfC.rolling(250).max().shift(1)).values
     common=P["valid"]&P["clean"]&(P["A"]>=2e8)&((C/np.roll(C,1,axis=0)-1)*100<9.8)
-    if SEL_MODE=="v3":
+    if SEL_MODE=="struct":
+        z=np.load(r"D:/about/learn/analysis/structure_mask_2021.npz")
+        base=z["mask"]&P["valid"]
+    elif SEL_MODE=="v3":
         base=common&(P["vr"]<=1.0)&(P["vol20"]<=0.35)&(P["prox"]>=0.90)&(P["ret10"]<=0.08)&(P["turn30"]<=5)&(P["ret60"]>=0)
     else:
         w30=(dfC.rolling(30).max()/dfC.rolling(30).min()-1).values
         cap=0.20 if SEL_MODE=="boss20" else 0.25
         base=common&(P["prox"]>=0.90)&(P["turn30"]<10)&(w30<=cap)
     return dict(top_prev=top_prev, top30_exit=top30_exit, prox_prev=prox_prev, mask=base)
+
+def struct_state(P,j,d):
+    t=max(0,d-1)
+    st=chan_state(P["H"][:,j],P["L"][:,j],P["C"][:,j],t)
+    if not st.get("zone"): return "none",None
+    zg=st["zg"]; zd=st["zd"]; w=st["width"]; px=float(P["C"][t,j])
+    if not np.isfinite(zg) or not np.isfinite(zd): return "none",None
+    if px<zd: return "below",None
+    if px<=zg: return "inside",0.0
+    if not (w and w>0): return "extended",None
+    dist=(px/zg-1)/w
+    return ("just_left",dist) if dist<=1.0 else ("extended",dist)
 
 def simulate(P, dd, start="2021-01-04", end=None, verbose=True, daily=False):
     dates=np.array(P["dates"]); nd=P["nd"]; O=P["O"]; H=P["H"]; L=P["L"]; C=P["C"]; codes=P["codes"]
@@ -73,11 +89,20 @@ def simulate(P, dd, start="2021-01-04", end=None, verbose=True, daily=False):
                 pv=dd["prox_prev"][d,j]
                 if RANK_MODE=="lowprox": rk=-pv if np.isfinite(pv) else 9
                 elif RANK_MODE=="random": rk=hash((code,d))%100000
+                elif RANK_MODE in ("struct","structdist"):
+                    cat,dist=struct_state(P,j,d)
+                    prio={"just_left":3,"inside":2,"none":1,"extended":0,"below":-1}[cat]
+                    if RANK_MODE=="struct":
+                        rk=(prio, pv if np.isfinite(pv) else -9.0)
+                    else:
+                        rk=(prio, -(dist if dist is not None else 9.0), pv if np.isfinite(pv) else -9.0)
+                elif RANK_MODE=="volratio":
+                    vv=P["vr"][d-1,j]; rk=-(vv if np.isfinite(vv) else 9.0)
                 else: rk=pv if np.isfinite(pv) else -9
                 trigs.append((rk,code,j,tp,d-p.get("entry_day",d)))
         trigs=[x for x in trigs if x[1] not in pos]
         if WAIT_LIMIT is not None: trigs=[x for x in trigs if x[4]<=WAIT_LIMIT]
-        trigs.sort(key=lambda x:-x[0])
+        trigs.sort(key=lambda x: x[0], reverse=True)
         free=10-len(pos)
         for rank,code,j,tp,wt in trigs:
             if free<=0: break
@@ -162,10 +187,10 @@ def simulate(P, dd, start="2021-01-04", end=None, verbose=True, daily=False):
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument("--start",default="2021-01-04"); ap.add_argument("--end",default=None)
     ap.add_argument("--daily",action="store_true")
-    ap.add_argument("--rank",default="prox",choices=["prox","lowprox","random"])
+    ap.add_argument("--rank",default="prox",choices=["prox","lowprox","random","struct","structdist","volratio"])
     ap.add_argument("--trig",default="rolling",choices=["rolling","entry_fixed","first_fixed"])
     ap.add_argument("--cache-only",action="store_true")
-    ap.add_argument("--select",default="v3",choices=["v3","boss","boss20"])
+    ap.add_argument("--select",default="v3",choices=["v3","boss","boss20","struct"])
     ap.add_argument("--wait",type=int,default=None)
     a=ap.parse_args(); global RANK_MODE,WAIT_LIMIT,TRIG_MODE,CACHE_ONLY; RANK_MODE=a.rank; WAIT_LIMIT=a.wait; TRIG_MODE=a.trig; CACHE_ONLY=a.cache_only
     global SEL_MODE; SEL_MODE=a.select

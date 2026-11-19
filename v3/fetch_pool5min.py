@@ -5,7 +5,9 @@ sys.path.insert(0, os.path.join(BASE,"v3"))
 import min5_calib as M
 P=M.build(); dates=np.array(P["dates"]); idx={d:i for i,d in enumerate(dates)}
 need=[]
-for f in ["buys_entry_fixed.csv","buys_first_fixed.csv"]:
+import sys
+files=sys.argv[1:] if len(sys.argv)>1 else ["buys_entry_fixed.csv","buys_first_fixed.csv"]
+for f in files:
     p=os.path.join(r"D:\about\learn\analysis",f)
     if not os.path.exists(p): continue
     d=pd.read_csv(p,dtype={"code":str}); d["entry_date"]=pd.to_datetime(d.entry_date)
