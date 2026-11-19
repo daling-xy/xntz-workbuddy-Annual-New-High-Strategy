@@ -18,6 +18,9 @@ from sim_fast import sim_minute_fast
 
 RANK_MODE="prox"      # prox / lowprox / random
 TRIG_MODE="rolling"   # rolling / entry_fixed / first_fixed
+CACHE_ONLY=False      # 只买 5min 已有缓存的票（用于快速验证，不新下载）
+SEL_MODE="v3"         # v3 / boss / boss20
+SKIPPED=0
 WAIT_LIMIT=None       # 进池后允许等待的最大交易日数（None=无限）
 
 def build_data(P):
@@ -26,7 +29,13 @@ def build_data(P):
     top_prev=dfC.rolling(30).max().shift(1).values
     top30_exit=dfC.rolling(30).max().values
     prox_prev=(dfC.shift(1)/dfC.rolling(250).max().shift(1)).values
-    base=P["valid"]&P["clean"]&(P["A"]>=2e8)&(P["vr"]<=1.0)&(P["vol20"]<=0.35)&(P["prox"]>=0.90)&(P["ret10"]<=0.08)&(P["turn30"]<=5)&(P["ret60"]>=0)&((C/np.roll(C,1,axis=0)-1)*100<9.8)
+    common=P["valid"]&P["clean"]&(P["A"]>=2e8)&((C/np.roll(C,1,axis=0)-1)*100<9.8)
+    if SEL_MODE=="v3":
+        base=common&(P["vr"]<=1.0)&(P["vol20"]<=0.35)&(P["prox"]>=0.90)&(P["ret10"]<=0.08)&(P["turn30"]<=5)&(P["ret60"]>=0)
+    else:
+        w30=(dfC.rolling(30).max()/dfC.rolling(30).min()-1).values
+        cap=0.20 if SEL_MODE=="boss20" else 0.25
+        base=common&(P["prox"]>=0.90)&(P["turn30"]<10)&(w30<=cap)
     return dict(top_prev=top_prev, top30_exit=top30_exit, prox_prev=prox_prev, mask=base)
 
 def simulate(P, dd, start="2021-01-04", end=None, verbose=True, daily=False):
@@ -76,6 +85,12 @@ def simulate(P, dd, start="2021-01-04", end=None, verbose=True, daily=False):
             equity_prev=cash+sum(pp["shares"]*C[d-1,pp["j"]] for pp in pos.values() if np.isfinite(C[d-1,pp["j"]]))
             size=min(cash, equity_prev/10)
             if size<=1e-9: break
+            if not daily and CACHE_ONLY:
+                _sd=dates[d-1]; _ed=dates[min(d+120, nd-1)]
+                _f=os.path.join(M.C5, f"{code}_{_sd}_{_ed}.csv")
+                if not os.path.exists(_f):
+                    global SKIPPED; SKIPPED+=1
+                    continue
             if daily:
                 trig=1.07*float(tp); cap=1.15*float(tp)
                 if not np.isfinite(H[d,j]) or not np.isfinite(O[d,j]): continue
@@ -129,6 +144,9 @@ def simulate(P, dd, start="2021-01-04", end=None, verbose=True, daily=False):
     mdd=float((pd.Series(e_arr)/pd.Series(e_arr).cummax()-1).min())
     sharpe=float(r.mean()/r.std()*np.sqrt(252)) if r.std()>0 else np.nan
     mon=pd.Series(e_arr,index=eqd).resample("ME").last().pct_change().dropna()
+    if len(buy_log):
+        pd.DataFrame(buy_log, columns=["entry_date","code","entry_px","size"]).to_csv(
+            r"D:/about/learn/analysis/pool_buys_last.csv",index=False,encoding="utf-8-sig")
     tr=pd.DataFrame(trades)
     if len(tr):
         tr.to_csv(r"D:/about/learn/analysis/pool_trades.csv",index=False,encoding="utf-8-sig")
@@ -146,8 +164,11 @@ def main():
     ap.add_argument("--daily",action="store_true")
     ap.add_argument("--rank",default="prox",choices=["prox","lowprox","random"])
     ap.add_argument("--trig",default="rolling",choices=["rolling","entry_fixed","first_fixed"])
+    ap.add_argument("--cache-only",action="store_true")
+    ap.add_argument("--select",default="v3",choices=["v3","boss","boss20"])
     ap.add_argument("--wait",type=int,default=None)
-    a=ap.parse_args(); global RANK_MODE,WAIT_LIMIT,TRIG_MODE; RANK_MODE=a.rank; WAIT_LIMIT=a.wait; TRIG_MODE=a.trig
+    a=ap.parse_args(); global RANK_MODE,WAIT_LIMIT,TRIG_MODE,CACHE_ONLY; RANK_MODE=a.rank; WAIT_LIMIT=a.wait; TRIG_MODE=a.trig; CACHE_ONLY=a.cache_only
+    global SEL_MODE; SEL_MODE=a.select
     t0=time.time(); P=M.build(); dd=build_data(P)
     import baostock as bs
     if not a.daily: bs.login()
