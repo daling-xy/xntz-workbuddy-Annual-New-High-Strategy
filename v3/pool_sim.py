@@ -14,6 +14,11 @@ import numpy as np, pandas as pd
 BASE=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(BASE,"v3"))
 import min5_calib as M
+from sim_fast import sim_minute_fast
+
+RANK_MODE="prox"      # prox / lowprox / random
+TRIG_MODE="rolling"   # rolling / entry_fixed / first_fixed
+WAIT_LIMIT=None       # 进池后允许等待的最大交易日数（None=无限）
 
 def build_data(P):
     C=P["C"]; nd,nc=C.shape
@@ -28,28 +33,44 @@ def simulate(P, dd, start="2021-01-04", end=None, verbose=True, daily=False):
     dates=np.array(P["dates"]); nd=P["nd"]; O=P["O"]; H=P["H"]; L=P["L"]; C=P["C"]; codes=P["codes"]
     s=int(np.searchsorted(dates,start)); e=nd if end is None else int(np.searchsorted(dates,end))
     idx={d:i for i,d in enumerate(dates)}
-    pool={}; pos={}; cash=1.0; buys=sells=0; eqs=[]; holds=[]; buy_log=[]
+    pool={}; pos={}; cash=1.0; buys=sells=0; eqs=[]; holds=[]; buy_log=[]; trades=[]
     for d in range(s,e):
         # 1) 到期的半仓/清仓事件
         for code,p in list(pos.items()):
             if p["half_day"]==d and not p["half_done"]:
-                cash+=p["shares"]*0.5*p["half_px"]; p["shares"]*=0.5; p["half_done"]=True
+                hv=p["shares"]*0.5*p["half_px"]; cash+=hv; p["half_cash"]=p.get("half_cash",0.0)+hv
+                p["shares"]*=0.5; p["half_done"]=True
             if p["exit_day"]==d:
-                cash+=p["shares"]*p["exit_px"]; holds.append(d-p["entry_day"]); del pos[code]; sells+=1
+                proceeds=p.get("half_cash",0.0)+p["shares"]*p["exit_px"]
+                cash+=p["shares"]*p["exit_px"]; holds.append(d-p["entry_day"])
+                trades.append(dict(code=code, entry_day=p["entry_day"], exit_day=d,
+                                   entry_px=p["entry_px"], size=p["size"], ret=proceeds/p["size"]-1,
+                                   half=bool(p.get("half_cash",0.0)>0)))
+                del pos[code]; sells+=1
         # 2) 买点监控（盘中，日线区间近似判定是否触达；实际成交用 5min）
         trigs=[]
         for code,p in pool.items():
             j=p["j"]
-            tp=dd["top_prev"][d,j]
+            if TRIG_MODE in ("entry_fixed","first_fixed") and p.get("top_fixed") is not None:
+                tp=p["top_fixed"]
+            else:
+                tp=dd["top_prev"][d,j]
             if not np.isfinite(tp) or tp<=0: continue
             if np.isfinite(H[d,j]) and np.isfinite(L[d,j]) and H[d,j]>=1.07*tp and L[d,j]<=1.15*tp:
+                if TRIG_MODE=="first_fixed" and p.get("top_fixed") is None:
+                    p["top_fixed"]=float(tp)
                 first=1.07*tp
                 if p["first"] is None or first>p["first"]: p["first"]=first
-                trigs.append((dd["prox_prev"][d,j],code,j,tp))
+                pv=dd["prox_prev"][d,j]
+                if RANK_MODE=="lowprox": rk=-pv if np.isfinite(pv) else 9
+                elif RANK_MODE=="random": rk=hash((code,d))%100000
+                else: rk=pv if np.isfinite(pv) else -9
+                trigs.append((rk,code,j,tp,d-p.get("entry_day",d)))
         trigs=[x for x in trigs if x[1] not in pos]
-        trigs.sort(key=lambda x:-(x[0] if np.isfinite(x[0]) else -9))
+        if WAIT_LIMIT is not None: trigs=[x for x in trigs if x[4]<=WAIT_LIMIT]
+        trigs.sort(key=lambda x:-x[0])
         free=10-len(pos)
-        for rank,code,j,tp in trigs:
+        for rank,code,j,tp,wt in trigs:
             if free<=0: break
             if cash<=1e-12: break
             equity_prev=cash+sum(pp["shares"]*C[d-1,pp["j"]] for pp in pos.values() if np.isfinite(C[d-1,pp["j"]]))
@@ -61,7 +82,8 @@ def simulate(P, dd, start="2021-01-04", end=None, verbose=True, daily=False):
                 entry=(max(float(O[d,j]),trig) if O[d,j]<=cap else cap)
                 rd=M.sim_daily(P, dict(j=j, ed=d, entry=entry))
                 if rd is None: continue
-                pos[code]=dict(j=j,entry_day=d,shares=size/entry,entry_px=entry,half_day=None,half_px=None,half_done=False,
+                pos[code]=dict(j=j,entry_day=d,shares=size/entry,entry_px=entry,size=size,half_cash=0.0,
+                               half_day=None,half_px=None,half_done=False,
                                exit_day=idx[rd["xday"]],exit_px=entry*(1+rd["ret"]))
                 cash-=size; free-=1; buys+=1; buy_log.append((dates[d],code,entry,size)); del pool[code]
                 continue
@@ -71,7 +93,7 @@ def simulate(P, dd, start="2021-01-04", end=None, verbose=True, daily=False):
             for attempt in range(4):
                 df=M.get5(code, sd, ed)
                 if df is None or len(df)==0: break
-                res=M.sim_minute(P, dict(j=j, ed=d, top=float(tp)), df, float(P["C"][d-1,j]))
+                res=sim_minute_fast(P, dict(j=j, ed=d, top=float(tp)), df, float(P["C"][d-1,j]))
                 if res is None: break
                 last=str(df["date"].max())
                 if res["xday"]==last and idx[last] < nd-1 and attempt<3:
@@ -79,7 +101,7 @@ def simulate(P, dd, start="2021-01-04", end=None, verbose=True, daily=False):
                 break
             if res is None: continue
             sh=size/res["entry_qfq"]
-            pos[code]=dict(j=j,entry_day=d,shares=sh,entry_px=res["entry_qfq"],
+            pos[code]=dict(j=j,entry_day=d,shares=sh,entry_px=res["entry_qfq"],size=size,half_cash=0.0,
                            half_day=(idx[res["half_day"]] if res["half_day"] else None),half_px=res["half_px_qfq"],half_done=False,
                            exit_day=idx[res["xday"]],exit_px=res["exit_qfq"])
             cash-=size; free-=1; buys+=1; buy_log.append((dates[d],code,res["entry_qfq"],size)); del pool[code]
@@ -95,7 +117,8 @@ def simulate(P, dd, start="2021-01-04", end=None, verbose=True, daily=False):
         for j in np.where(m)[0]:
             code=codes[j]
             if code in pool or code in pos: continue
-            pool[code]=dict(j=j,first=None)
+            pool[code]=dict(j=j,first=None,entry_day=d,
+                            top_fixed=(float(dd["top30_exit"][d,j]) if TRIG_MODE=="entry_fixed" and np.isfinite(dd["top30_exit"][d,j]) else None))
         # 5) 估值
         val=sum(p["shares"]*C[d,p["j"]] for p in pos.values() if np.isfinite(C[d,p["j"]]))
         eqs.append((d,cash,val,cash+val,len(pos),len(pool)))
@@ -106,6 +129,12 @@ def simulate(P, dd, start="2021-01-04", end=None, verbose=True, daily=False):
     mdd=float((pd.Series(e_arr)/pd.Series(e_arr).cummax()-1).min())
     sharpe=float(r.mean()/r.std()*np.sqrt(252)) if r.std()>0 else np.nan
     mon=pd.Series(e_arr,index=eqd).resample("ME").last().pct_change().dropna()
+    tr=pd.DataFrame(trades)
+    if len(tr):
+        tr.to_csv(r"D:/about/learn/analysis/pool_trades.csv",index=False,encoding="utf-8-sig")
+        wy=pd.to_datetime(dates[tr.exit_day]).year
+        print(f"已实现交易 {len(tr)} 笔: 均值 {tr.ret.mean()*100:.2f}% 中位 {tr.ret.median()*100:.2f}% 胜率 {(tr.ret>0).mean()*100:.1f}%")
+        print("  分年:", {int(y):f"{tr.ret[wy==y].mean()*100:+.1f}%(n={int((wy==y).sum())})" for y in sorted(set(wy))})
     if verbose:
         print(f"[{start}~{end}] 总收益 {tot*100:.1f}% CAGR {cagr*100:.1f}% MDD {mdd*100:.1f}% Sharpe {sharpe:.2f}")
         print(f"买入 {buys} 卖出 {sells} 平均持有 {np.mean(holds) if holds else np.nan:.1f}日 | 平均持仓 {np.mean([x[4] for x in eqs]):.1f} 平均池子 {np.mean([x[5] for x in eqs]):.0f}")
@@ -115,7 +144,11 @@ def simulate(P, dd, start="2021-01-04", end=None, verbose=True, daily=False):
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument("--start",default="2021-01-04"); ap.add_argument("--end",default=None)
     ap.add_argument("--daily",action="store_true")
-    a=ap.parse_args(); t0=time.time(); P=M.build(); dd=build_data(P)
+    ap.add_argument("--rank",default="prox",choices=["prox","lowprox","random"])
+    ap.add_argument("--trig",default="rolling",choices=["rolling","entry_fixed","first_fixed"])
+    ap.add_argument("--wait",type=int,default=None)
+    a=ap.parse_args(); global RANK_MODE,WAIT_LIMIT,TRIG_MODE; RANK_MODE=a.rank; WAIT_LIMIT=a.wait; TRIG_MODE=a.trig
+    t0=time.time(); P=M.build(); dd=build_data(P)
     import baostock as bs
     if not a.daily: bs.login()
     try:
