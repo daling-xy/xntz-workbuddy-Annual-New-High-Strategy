@@ -20,7 +20,8 @@ from chan_state import chan_state
 RANK_MODE="prox"      # prox / lowprox / random
 TRIG_MODE="rolling"   # rolling / entry_fixed / first_fixed
 CACHE_ONLY=False      # 只买 5min 已有缓存的票（用于快速验证，不新下载）
-SEL_MODE="v3"         # v3 / boss / boss20
+SEL_MODE="v3"         # v3 / boss / boss20 / struct
+DROP_RET60=False; DROP_TURN30=False; DROP_RET10=False; DROP_VOL=False; PROX_MIN=0.90
 SKIPPED=0
 WAIT_LIMIT=None       # 进池后允许等待的最大交易日数（None=无限）
 
@@ -35,7 +36,11 @@ def build_data(P):
         z=np.load(r"D:/about/learn/analysis/structure_mask_2021.npz")
         base=z["mask"]&P["valid"]
     elif SEL_MODE=="v3":
-        base=common&(P["vr"]<=1.0)&(P["vol20"]<=0.35)&(P["prox"]>=0.90)&(P["ret10"]<=0.08)&(P["turn30"]<=5)&(P["ret60"]>=0)
+        base=common&(P["prox"]>=PROX_MIN)
+        if not DROP_VOL: base=base&(P["vr"]<=1.0)&(P["vol20"]<=0.35)
+        if not DROP_RET10: base=base&(P["ret10"]<=0.08)
+        if not DROP_TURN30: base=base&(P["turn30"]<=5)
+        if not DROP_RET60: base=base&(P["ret60"]>=0)
     else:
         w30=(dfC.rolling(30).max()/dfC.rolling(30).min()-1).values
         cap=0.20 if SEL_MODE=="boss20" else 0.25
@@ -191,9 +196,13 @@ def main():
     ap.add_argument("--trig",default="rolling",choices=["rolling","entry_fixed","first_fixed"])
     ap.add_argument("--cache-only",action="store_true")
     ap.add_argument("--select",default="v3",choices=["v3","boss","boss20","struct"])
+    ap.add_argument("--no-ret60",action="store_true"); ap.add_argument("--no-turn30",action="store_true")
+    ap.add_argument("--no-ret10",action="store_true"); ap.add_argument("--no-vol",action="store_true")
+    ap.add_argument("--prox",type=float,default=0.90)
     ap.add_argument("--wait",type=int,default=None)
     a=ap.parse_args(); global RANK_MODE,WAIT_LIMIT,TRIG_MODE,CACHE_ONLY; RANK_MODE=a.rank; WAIT_LIMIT=a.wait; TRIG_MODE=a.trig; CACHE_ONLY=a.cache_only
-    global SEL_MODE; SEL_MODE=a.select
+    global SEL_MODE,DROP_RET60,DROP_TURN30,DROP_RET10,DROP_VOL,PROX_MIN
+    SEL_MODE=a.select; DROP_RET60=a.no_ret60; DROP_TURN30=a.no_turn30; DROP_RET10=a.no_ret10; DROP_VOL=a.no_vol; PROX_MIN=a.prox
     t0=time.time(); P=M.build(); dd=build_data(P)
     import baostock as bs
     if not a.daily: bs.login()
